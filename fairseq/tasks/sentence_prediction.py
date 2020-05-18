@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import os
 
 import numpy as np
@@ -26,9 +27,12 @@ from fairseq.data import (
     StripTokenDataset,
     TruncateDataset,
 )
+from fairseq.tasks import FairseqTask, register_task
 
 from . import FairseqTask, register_task
 from fairseq.data.encoders.utils import get_whole_word_mask
+
+logger = logging.getLogger(__name__)
 
 
 @register_task('sentence_prediction')
@@ -46,7 +50,7 @@ class SentencePredictionTask(FairseqTask):
         parser.add_argument('data', metavar='FILE',
                             help='file prefix for data')
         parser.add_argument('--num-classes', type=int, default=-1,
-                            help='number of classes')
+                            help='number of classes or regression targets')
         parser.add_argument('--init-token', type=int, default=None,
                             help='add token at the beginning of each batch item')
         parser.add_argument('--separator-token', type=int, default=None,
@@ -124,7 +128,7 @@ class SentencePredictionTask(FairseqTask):
             os.path.join(args.data, 'input0', 'dict.txt'),
             source=True,
         )
-        print('| [input] dictionary: {} types'.format(len(data_dict)))
+        logger.info('[input] dictionary: {} types'.format(len(data_dict)))
 
         label_dict = None
         if not args.regression_target:
@@ -134,7 +138,7 @@ class SentencePredictionTask(FairseqTask):
                 os.path.join(args.data, 'label', 'dict.txt'),
                 source=False,
             )
-            print('| [label] dictionary: {} types'.format(len(label_dict)))
+            logger.info('[label] dictionary: {} types'.format(len(label_dict)))
         else:
             label_dict = data_dict
         return SentencePredictionTask(args, data_dict, label_dict)
@@ -149,7 +153,7 @@ class SentencePredictionTask(FairseqTask):
 
             dataset = data_utils.load_indexed_dataset(
                 split_path,
-                self.source_dictionary,
+                dictionary,
                 self.args.dataset_impl,
                 combine=combine,
             )
@@ -289,7 +293,7 @@ class SentencePredictionTask(FairseqTask):
                 sort_order=[shuffle],
             )
 
-        print("| Loaded {0} with #samples: {1}".format(split, len(dataset)))
+        logger.info("Loaded {0} with #samples: {1}".format(split, len(dataset)))
 
         self.datasets[split] = dataset
         return self.datasets[split]

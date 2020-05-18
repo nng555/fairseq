@@ -97,7 +97,6 @@ __all__ = [
     'ResamplingDataset',
     'RightPadDataset',
     'RoundRobinZipDatasets',
-    'ShardedDataset',
     'ShardedIterator',
     'SortDataset',
     'StripTokenDataset',
