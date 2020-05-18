@@ -7,10 +7,12 @@
 import argparse
 import copy
 import os
+import numpy as np
 from typing import List, Dict, Iterator, Tuple, Any
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from fairseq import utils
 from fairseq.data import encoders
@@ -185,15 +187,78 @@ class GeneratorHubInterface(nn.Module):
                         ))
         return outputs
 
-    def encode(self, sentence: str) -> torch.LongTensor:
-        sentence = self.tokenize(sentence)
-        sentence = self.apply_bpe(sentence)
-        return self.binarize(sentence)
+    def predict(self, head: str, tokens: torch.LongTensor, return_logits: bool = False):
+        features = self.extract_features(tokens.to(device=self.device))
+        logits = self.models[0].classification_heads[head](features)
+        if return_logits:
+            return logits
+        return F.log_softmax(logits, dim=-1)
 
-    def decode(self, tokens: torch.LongTensor) -> str:
-        sentence = self.string(tokens)
-        sentence = self.remove_bpe(sentence)
-        return self.detokenize(sentence)
+    def extract_features(self, tokens: torch.LongTensor, return_all_hiddens: bool = False) -> torch.Tensor:
+        if tokens.dim() == 1:
+            tokens = tokens.unsqueeze(0)
+        if tokens.size(-1) > self.models[0].max_positions():
+            raise ValueError('tokens exceeds maximum length: {} > {}'.format(
+                tokens.size(-1), self.models[0].max_positions()
+            ))
+        features, extra = self.models[0](
+            tokens.to(device=self.device),
+            torch.tensor([len(t) for t in tokens], device=self.device),
+            features_only=True,
+            return_all_hiddens=return_all_hiddens,
+        )
+        if return_all_hiddens:
+            # convert from T x B x C -> B x T x C
+            inner_states = extra['inner_states']
+            return [inner_state.transpose(0, 1) for inner_state in inner_states]
+        else:
+            return features  # just the last layer's features
+
+    def encode(self, sentence: str, *addl_sentences, no_separator=False) -> torch.LongTensor:
+        """
+        BPE-encode a sentence (or multiple sentences).
+
+        Every sequence begins with a beginning-of-sentence (`<s>`) symbol.
+        Every sentence ends with an end-of-sentence (`</s>`) and we use an
+        extra end-of-sentence (`</s>`) as a separator.
+
+        Example (single sentence): `<s> a b c </s>`
+        Example (sentence pair): `<s> d e f </s> </s> 1 2 3 </s>`
+
+        The BPE encoding follows GPT-2. One subtle detail is that the GPT-2 BPE
+        requires leading spaces. For example::
+
+            >>> roberta.encode('Hello world').tolist()
+            [0, 31414, 232, 2]
+            >>> roberta.encode(' world').tolist()
+            [0, 232, 2]
+            >>> roberta.encode('world').tolist()
+            [0, 8331, 2]
+        """
+        bpe_sentence = '<s> ' + self.bpe.encode(sentence) + ' </s>'
+        for s in addl_sentences:
+            bpe_sentence += (' </s>' if not no_separator else '')
+            bpe_sentence += ' ' + self.bpe.encode(s) + ' </s>'
+        tokens = self.task.source_dictionary.encode_line(bpe_sentence, append_eos=False, add_if_not_exist=False)
+        return tokens.long()
+
+    def decode(self, tokens: torch.LongTensor, split_sent=False):
+        assert tokens.dim() == 1
+        tokens = tokens.numpy()
+        tokens = np.delete(tokens, np.argwhere(tokens == self.task.source_dictionary.pad()))
+        if tokens[0] == self.task.source_dictionary.bos():
+            tokens = tokens[1:]  # remove <s>
+        eos_mask = (tokens == self.task.source_dictionary.eos())
+        doc_mask = eos_mask[1:] & eos_mask[:-1]
+        if split_sent:
+            sentences = np.split(tokens, eos_mask[:-1].nonzero()[0] + 1)
+        else:
+            sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
+        sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for s in sentences]
+        sentences = [s for s in sentences if s != '']
+        if len(sentences) == 1:
+            return sentences[0]
+        return sentences
 
     def tokenize(self, sentence: str) -> str:
         if self.tokenizer is not None:

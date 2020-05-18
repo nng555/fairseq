@@ -3,6 +3,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from fairseq import options
 from fairseq.models import (
     FairseqLanguageModel,
@@ -63,6 +67,50 @@ class FConvLanguageModel(FairseqLanguageModel):
         )
         return FConvLanguageModel(decoder)
 
+    def forward(self, src_tokens, classification_head_name=None):
+        x = self.decoder(src_tokens)
+        if classification_head_name is not None:
+            x = selfclassification_heads[classification_head_name](x)
+        return x
+
+    def register_classification_head(self, name, num_classes=None, inner_dim=None, **kwargs):
+        """Register a classification head."""
+        if name in self.classification_heads:
+            prev_num_classes = self.classification_heads[name].out_proj.out_features
+            prev_inner_dim = self.classification_heads[name].dense.out_features
+            if num_classes != prev_num_classes or inner_dim != prev_inner_dim:
+                print(
+                    'WARNING: re-registering head "{}" with num_classes {} (prev: {}) '
+                    'and inner_dim {} (prev: {})'.format(
+                        name, num_classes, prev_num_classes, inner_dim, prev_inner_dim
+                    )
+                )
+        self.classification_heads[name] = FConvClassificationHead(
+            self.args.encoder_embed_dim,
+            inner_dim or self.args.encoder_embed_dim,
+            num_classes,
+            self.args.pooler_activation_fn,
+            self.args.pooler_dropout,
+        )
+
+class FConvClassificationHead(nn.Module):
+    """Head for sentence-level classification tasks."""
+
+    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout):
+        super().__init__()
+        self.dense = nn.Linear(input_dim, inner_dim)
+        self.activation_fn = utils.get_activation_fn(activation_fn)
+        self.dropout = nn.Dropout(p=pooler_dropout)
+        self.out_proj = nn.Linear(inner_dim, num_classes)
+
+    def forward(self, features, **kwargs):
+        x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = self.activation_fn(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
 
 @register_model_architecture('fconv_lm', 'fconv_lm')
 def base_lm_architecture(args):

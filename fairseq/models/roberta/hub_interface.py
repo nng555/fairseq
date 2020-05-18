@@ -23,6 +23,7 @@ class RobertaHubInterface(nn.Module):
         self.args = args
         self.task = task
         self.model = model
+        self.max_positions = [self.model.max_positions()]
 
         self.bpe = encoders.build_bpe(args)
 
@@ -32,6 +33,93 @@ class RobertaHubInterface(nn.Module):
     @property
     def device(self):
         return self._float_tensor.device
+
+    def masked_encode(self,
+               sentence: str,
+               *addl_sentences,
+               mask_prob=0.0,
+               random_token_prob=0.0,
+               leave_unmasked_prob=0.0,
+               sort=False,
+               descending=False,
+               no_separator=False) -> torch.LongTensor:
+        start_tok = self.task.source_dictionary.encode_line('<s>', append_eos=False, add_if_not_exist=False)
+        end_tok = self.task.source_dictionary.encode_line('</s>', append_eos=False, add_if_not_exist=False)
+        pad_tok = torch.tensor([self.task.source_dictionary.pad_index])
+
+        if random_token_prob > 0.0:
+            weights = np.ones(len(self.task.source_dictionary))
+            weights[:self.task.source_dictionary.nspecial] = 0
+            weights = weights / weights.sum()
+
+        def masked_encode_sent(sent):
+            bpe_sentence = self.task.source_dictionary.encode_line(self.bpe.encode(sent), append_eos=False, add_if_not_exist=False)
+            if (mask_prob == 0.0):
+                return bpe_sentence
+
+            # decide elements to mask
+            sz = len(bpe_sentence)
+            mask = np.full(sz, False)
+            num_mask = int(
+                # add a random number for probabilistic rounding
+                mask_prob * sz + np.random.rand()
+            )
+
+            if sort:
+                seq_probs = self.sequence_probability(torch.cat((start_tok, bpe_sentence, end_tok)).long().cuda())
+                _, sort_idx = torch.sort(seq_probs[1:-1], descending=descending)
+                sort_idx = sort_idx.cpu()
+                mask[sort_idx[:num_mask]] = True
+            else:
+                mask[np.random.choice(sz, num_mask, replace=False)] = True
+
+            mask_targets = np.full(len(mask), self.task.source_dictionary.pad_index)
+            mask_targets[mask] = bpe_sentence[torch.from_numpy(mask.astype(np.uint8)) == 1]
+
+            # decide unmasking and random replacement
+            rand_or_unmask_prob = random_token_prob + leave_unmasked_prob
+            if rand_or_unmask_prob > 0.0:
+                rand_or_unmask = mask & (np.random.rand(sz) < rand_or_unmask_prob)
+                if random_token_prob == 0.0:
+                    unmask = rand_or_unmask
+                    rand_mask = None
+                elif leave_unmasked_prob == 0.0:
+                    unmask = None
+                    rand_mask = rand_or_unmask
+                else:
+                    unmask_prob = leave_unmasked_prob / rand_or_unmask_prob
+                    decision = np.random.rand(sz) < unmask_prob
+                    unmask = rand_or_unmask & decision
+                    rand_mask = rand_or_unmask & (~decision)
+            else:
+                unmask = rand_mask = None
+
+            if unmask is not None:
+                mask = mask ^ unmask
+
+            bpe_sentence[mask] = self.task.mask_idx
+            if rand_mask is not None:
+                num_rand = rand_mask.sum()
+                if num_rand > 0:
+                    bpe_sentence[rand_mask] = torch.from_numpy(np.random.choice(
+                        len(self.task.source_dictionary),
+                        num_rand,
+                        p=weights,
+                    )).int()
+            return bpe_sentence, torch.from_numpy(mask_targets)
+
+        bpe_sent, mask_targets = masked_encode_sent(sentence)
+        bpe_sent = torch.cat((start_tok, bpe_sent, end_tok))
+        mask_targets = torch.cat((pad_tok, mask_targets, pad_tok))
+
+        for s in addl_sentences:
+            if not no_separator:
+                bpe_sent = torch.cat((bpe_sent, start_tok))
+                mask_targets = torch.cat((mask_targets, pad_tok))
+            tmp_sent, tmp_targets = masked_encode_sent(s)
+            bpe_sent = torch.cat((bpe_sent, tmp_sent, end_tok))
+            mask_targets = torch.cat((mask_targets, tmp_targets, pad_tok))
+        return bpe_sent.long(), mask_targets.long()
 
     def encode(self, sentence: str, *addl_sentences, no_separator=False) -> torch.LongTensor:
         """
@@ -61,18 +149,26 @@ class RobertaHubInterface(nn.Module):
         tokens = self.task.source_dictionary.encode_line(bpe_sentence, append_eos=False, add_if_not_exist=False)
         return tokens.long()
 
-    def decode(self, tokens: torch.LongTensor):
+    def decode(self, tokens: torch.LongTensor, split_sent=False):
         assert tokens.dim() == 1
         tokens = tokens.numpy()
+        tokens = np.delete(tokens, np.argwhere(tokens == self.task.source_dictionary.pad()))
         if tokens[0] == self.task.source_dictionary.bos():
             tokens = tokens[1:]  # remove <s>
+        while(tokens[-1] == self.task.source_dictionary.eos()):
+            tokens = tokens[:-1] # remove </s>
         eos_mask = (tokens == self.task.source_dictionary.eos())
         doc_mask = eos_mask[1:] & eos_mask[:-1]
-        sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
+        if split_sent:
+            sentences = np.split(tokens, eos_mask[:-1].nonzero()[0] + 1)
+        else:
+            sentences = np.split(tokens, doc_mask.nonzero()[0] + 1)
         sentences = [self.bpe.decode(self.task.source_dictionary.string(s)) for s in sentences]
-        if len(sentences) == 1:
+        sentences = [s for s in sentences if s != '']
+        if len(sentences) == 1 and not split_sent:
             return sentences[0]
         return sentences
+
 
     def extract_features(self, tokens: torch.LongTensor, return_all_hiddens: bool = False) -> torch.Tensor:
         if tokens.dim() == 1:
@@ -187,6 +283,123 @@ class RobertaHubInterface(nn.Module):
                     predicted_token,
                 ))
         return topk_filled_outputs
+
+    def reconstruction_prob_tok(self, masked_tokens, target_tokens, reconstruct=False, topk=1):
+
+        single = False
+
+        # expand batch size 1
+        if masked_tokens.dim() == 1:
+            single = True
+            masked_tokens = masked_tokens.unsqueeze(0)
+            target_tokens = target_tokens.unsqueeze(0)
+
+        masked_fill = torch.ones_like(masked_tokens)
+
+        masked_index = (target_tokens != self.task.source_dictionary.pad_index).nonzero(as_tuple=True)
+        masked_orig_index = target_tokens[masked_index]
+
+        # edge case of no masked tokens
+        if len(masked_orig_index) == 0:
+            if reconstruct:
+                return masked_tokens, masked_fill
+            else:
+                return 1.0
+
+        masked_orig_enum = [list(range(len(masked_orig_index))), masked_orig_index]
+
+        with utils.eval(self.model):
+            features, extra = self.model(
+                masked_tokens.long().to(device=self.device),
+                features_only=False,
+                return_all_hiddens=False,
+            )
+
+        logits = features[masked_index]
+        probs = logits.softmax(dim=-1)
+        for prob in probs:
+            prob[self.task.source_dictionary.bos()] = 0 # 0
+            prob[self.task.source_dictionary.eos()] = 0 # 2
+            prob[self.task.source_dictionary.pad()] = 0 # 1
+            prob[-4:] = 0
+
+        if (reconstruct):
+
+            # sample from topk
+            if topk != -1:
+                values, indices = probs.topk(k=topk, dim=-1)
+                kprobs = values.softmax(dim=-1)
+                if (len(masked_index) > 1):
+                    samples = torch.cat([idx[torch.multinomial(kprob, 1)] for kprob, idx in zip(kprobs, indices)])
+                else:
+                    samples = indices[torch.multinomial(kprobs, 1)]
+
+            # unrestricted sampling
+            else:
+                if (len(masked_index) > 1):
+                    samples = torch.cat([torch.multinomial(prob, 1) for prob in probs])
+                else:
+                    samples = torch.multinomial(probs, 1)
+
+            # set samples
+            masked_tokens[masked_index] = samples
+            masked_fill[masked_index] = samples
+
+            if single:
+                return masked_tokens[0], masked_fill[0]
+            else:
+                return masked_tokens, masked_fill
+
+        return torch.sum(torch.log(probs[masked_orig_enum])).item()
+
+    def sequence_probability(self, tokens):
+        single = False
+
+        # expand batch size 1
+        if tokens.dim() == 1:
+            single = True
+            tokens = tokens.unsqueeze(0)
+
+        with utils.eval(self.model):
+            features, extra = self.model(
+                tokens.long().to(device=self.device),
+                features_only=False,
+                return_all_hiddens=False,
+            )
+
+        tokens = tokens.unsqueeze(-1)
+        logits = torch.gather(features, -1, tokens).squeeze(-1)
+        probs = logits.softmax(dim=-1)
+
+        if single:
+            return probs[0]
+        else:
+            return probs
+
+    def max_probability(self, tokens):
+        single = False
+
+        # expand batch size 1
+        if tokens.dim() == 1:
+            single = True
+            tokens = tokens.unsqueeze(0)
+
+        with utils.eval(self.model):
+            features, extra = self.model(
+                tokens.long().to(device=self.device),
+                features_only=False,
+                return_all_hiddens=False,
+            )
+
+        logits, indices = torch.max(features, dim=-1)
+        probs = logits.softmax(dim=-1)
+
+        if single:
+            return probs[0], indices[0]
+        else:
+            return probs, indices
+
+
 
     def disambiguate_pronoun(self, sentence: str) -> bool:
         """

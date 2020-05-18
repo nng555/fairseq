@@ -43,10 +43,11 @@ do
   elif [ "$TASK" = "MNLI" ]
   then
     SPLITS="train dev_matched dev_mismatched test_matched test_mismatched"
-    INPUT_COLUMNS=( 9 10 )
-    TEST_INPUT_COLUMNS=( 9 10 )
+    INPUT_COLUMNS=( 9 10 4 )
+    TEST_INPUT_COLUMNS=( 9 10 4 )
     DEV_LABEL_COLUMN=16
     LABEL_COLUMN=12
+    INPUT_COUNT=3
   elif [ "$TASK" = "QNLI" ]
   then
     INPUT_COLUMNS=( 2 3 )
