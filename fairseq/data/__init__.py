@@ -27,6 +27,7 @@ from .monolingual_dataset import MonolingualDataset
 from .multi_corpus_sampled_dataset import MultiCorpusSampledDataset
 from .nested_dictionary_dataset import NestedDictionaryDataset
 from .noising import NoisingDataset
+from .noising import WordDropout
 from .numel_dataset import NumelDataset
 from .num_samples_dataset import NumSamplesDataset
 from .offset_tokens_dataset import OffsetTokensDataset
@@ -42,6 +43,7 @@ from .soft_label_dataset import SoftLabelDataset
 from .sort_dataset import SortDataset
 from .strip_token_dataset import StripTokenDataset
 from .subsample_dataset import SubsampleDataset
+from .switchout_dataset import SwitchoutDataset
 from .token_block_dataset import TokenBlockDataset
 from .transform_eos_dataset import TransformEosDataset
 from .transform_eos_lang_pair_dataset import TransformEosLangPairDataset
@@ -83,6 +85,7 @@ __all__ = [
     'MultiCorpusSampledDataset',
     'NestedDictionaryDataset',
     'NoisingDataset',
+    'WordDropout',
     'NumelDataset',
     'NumSamplesDataset',
     'OffsetTokensDataset',
@@ -100,6 +103,7 @@ __all__ = [
     'SortDataset',
     'StripTokenDataset',
     'SubsampleDataset',
+    'SwitchoutDataset',
     'TokenBlockDataset',
     'TransformEosDataset',
     'TransformEosLangPairDataset',

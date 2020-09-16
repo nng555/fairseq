@@ -7,6 +7,7 @@ import torch
 import numpy as np
 
 from fairseq.data import data_utils
+from . import BaseWrapperDataset
 
 
 class WordNoising(object):
@@ -216,29 +217,30 @@ class UnsupervisedMTNoising(WordNoising):
 
     def noising(self, x, lengths):
         # 1. Word Shuffle
-        noisy_src_tokens, noisy_src_lengths = self.word_shuffle.noising(
-            x=x,
-            lengths=lengths,
-            max_shuffle_distance=self.max_word_shuffle_distance,
-        )
+        #noisy_src_tokens, noisy_src_lengths = self.word_shuffle.noising(
+        #    x=x,
+        #    lengths=lengths,
+        #    max_shuffle_distance=self.max_word_shuffle_distance,
+        #)
         # 2. Word Dropout
         noisy_src_tokens, noisy_src_lengths = self.word_dropout.noising(
-            x=noisy_src_tokens,
-            lengths=noisy_src_lengths,
+            x=x,
+            lengths=lengths,
             dropout_prob=self.word_dropout_prob,
-        )
-        # 3. Word Blanking
-        noisy_src_tokens, noisy_src_lengths = self.word_dropout.noising(
-            x=noisy_src_tokens,
-            lengths=noisy_src_lengths,
-            dropout_prob=self.word_blanking_prob,
             blank_idx=self.dictionary.unk(),
         )
+        # 3. Word Blanking
+        #noisy_src_tokens, noisy_src_lengths = self.word_dropout.noising(
+        #    x=noisy_src_tokens,
+        #    lengths=noisy_src_lengths,
+        #    dropout_prob=self.word_blanking_prob,
+        #    blank_idx=self.dictionary.unk(),
+        #)
 
         return noisy_src_tokens
 
 
-class NoisingDataset(torch.utils.data.Dataset):
+class NoisingDataset(BaseWrapperDataset):
     def __init__(
         self,
         src_dataset,
@@ -272,7 +274,7 @@ class NoisingDataset(torch.utils.data.Dataset):
             kwargs (dict, optional): arguments to initialize the default
                 :class:`WordNoising` instance given by *noiser*.
         """
-        self.src_dataset = src_dataset
+        super().__init__(src_dataset)
         self.src_dict = src_dict
         self.seed = seed
         self.noiser = noiser if noiser is not None else noising_class(
@@ -284,7 +286,7 @@ class NoisingDataset(torch.utils.data.Dataset):
         Returns a single noisy sample. Multiple samples are fed to the collater
         create a noising dataset batch.
         """
-        src_tokens = self.src_dataset[index]
+        src_tokens = self.dataset[index]
         src_lengths = torch.LongTensor([len(src_tokens)])
         src_tokens = src_tokens.unsqueeze(0)
 
@@ -297,19 +299,13 @@ class NoisingDataset(torch.utils.data.Dataset):
 
         # Transpose back to expected src_tokens format
         # (sequence length, 1) -> (1, sequence length)
-        noisy_src_tokens = torch.t(noisy_src_tokens)
-        return noisy_src_tokens[0]
-
-    def __len__(self):
-        """
-        The length of the noising dataset is the length of src.
-        """
-        return len(self.src_dataset)
+        noisy_src_tokens = torch.t(noisy_src_tokens).squeeze(0)
+        return noisy_src_tokens
 
     @property
     def supports_prefetch(self):
-        return self.src_dataset.supports_prefetch
+        return self.dataset.supports_prefetch
 
     def prefetch(self, indices):
-        if self.src_dataset.supports_prefetch:
-            self.src_dataset.prefetch(indices)
+        if self.dataset.supports_prefetch:
+            self.dataset.prefetch(indices)

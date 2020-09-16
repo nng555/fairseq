@@ -21,6 +21,9 @@ from fairseq.data import (
     LanguagePairDataset,
     PrependTokenDataset,
     StripTokenDataset,
+    SwitchoutDataset,
+    NoisingDataset,
+    WordDropout,
     TruncateDataset,
 )
 
@@ -39,7 +42,7 @@ def load_langpair_dataset(
     combine, dataset_impl, upsample_primary,
     left_pad_source, left_pad_target, max_source_positions,
     max_target_positions, prepend_bos=False, load_alignments=False,
-    truncate_source=False, append_source_id=False
+    truncate_source=False, append_source_id=False, augment=None, src_temperature=0.0, tgt_temperature=0.0, word_dropout_prob=0.0,
 ):
 
     def split_exists(split, src, tgt, lang, data_path):
@@ -64,6 +67,13 @@ def load_langpair_dataset(
                 raise FileNotFoundError('Dataset not found: {} ({})'.format(split, data_path))
 
         src_dataset = data_utils.load_indexed_dataset(prefix + src, src_dict, dataset_impl)
+
+        if split.startswith('train'):
+            if augment == 'switchout':
+                src_dataset = SwitchoutDataset(src_dataset, len(src_dict), src_temperature, src_dict.bos(), src_dict.eos(), src_dict.pad())
+            elif augment == 'dropout':
+                src_dataset = NoisingDataset(src_dataset, src_dict, 0, word_dropout_prob=word_dropout_prob, word_blanking_prob=0.0, max_word_shuffle_distance=0)
+
         if truncate_source:
             src_dataset = AppendTokenDataset(
                 TruncateDataset(
@@ -75,6 +85,10 @@ def load_langpair_dataset(
         src_datasets.append(src_dataset)
 
         tgt_dataset = data_utils.load_indexed_dataset(prefix + tgt, tgt_dict, dataset_impl)
+        if split.startswith('train'):
+            if augment in ['switchout', 'raml']:
+                tgt_dataset = SwitchoutDataset(tgt_dataset, len(tgt_dict), tgt_temperature, tgt_dict.bos(), tgt_dict.eos(), tgt_dict.pad())
+
         if tgt_dataset is not None:
             tgt_datasets.append(tgt_dataset)
 
@@ -176,6 +190,14 @@ class TranslationTask(FairseqTask):
                             help='amount to upsample primary dataset')
         parser.add_argument('--truncate-source', action='store_true', default=False,
                             help='truncate source to max-source-positions')
+        parser.add_argument('--augment', default=None,
+                            help='augment method')
+        parser.add_argument('--src-temperature', default=0.95, type=float,
+                            help='temperature for source noising')
+        parser.add_argument('--tgt-temperature', default=0.9, type=float,
+                            help='temperature for target noising')
+        parser.add_argument('--word-dropout-prob', default=0.0, type=float, metavar='N',
+                            help='word dropout probability for denoising autoencoding data generation')
 
         # options for reporting BLEU during validation
         parser.add_argument('--eval-bleu', action='store_true',
@@ -255,6 +277,10 @@ class TranslationTask(FairseqTask):
             max_target_positions=self.args.max_target_positions,
             load_alignments=self.args.load_alignments,
             truncate_source=self.args.truncate_source,
+            augment=self.args.augment,
+            src_temperature=self.args.src_temperature,
+            tgt_temperature=self.args.tgt_temperature,
+            word_dropout_prob=self.args.word_dropout_prob,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
