@@ -9,9 +9,11 @@ from .fairseq_dataset import FairseqDataset, FairseqIterableDataset
 
 from .base_wrapper_dataset import BaseWrapperDataset
 
+from .add_target_dataset import AddTargetDataset
 from .append_token_dataset import AppendTokenDataset
 from .audio.raw_audio_dataset import FileAudioDataset
 from .backtranslation_dataset import BacktranslationDataset
+from .bucket_pad_length_dataset import BucketPadLengthDataset
 from .colorize_dataset import ColorizeDataset
 from .concat_dataset import ConcatDataset
 from .concat_sentences_dataset import ConcatSentencesDataset
@@ -47,7 +49,10 @@ from .switchout_dataset import SwitchoutDataset
 from .token_block_dataset import TokenBlockDataset
 from .transform_eos_dataset import TransformEosDataset
 from .transform_eos_lang_pair_dataset import TransformEosLangPairDataset
-from .truncate_dataset import TruncateDataset
+from .shorten_dataset import TruncateDataset, RandomCropDataset
+from .multilingual.sampled_multi_dataset import SampledMultiDataset
+from .multilingual.sampled_multi_epoch_dataset import SampledMultiEpochDataset
+from .fasta_dataset import FastaDataset, EncodedFastaDataset
 
 from .iterators import (
     CountingIterator,
@@ -57,18 +62,22 @@ from .iterators import (
 )
 
 __all__ = [
+    'AddTargetDataset',
     'AppendTokenDataset',
     'BacktranslationDataset',
     'BaseWrapperDataset',
+    'BucketPadLengthDataset',
     'ColorizeDataset',
     'ConcatDataset',
     'ConcatSentencesDataset',
     'CountingIterator',
     'DenoisingDataset',
     'Dictionary',
+    'EncodedFastaDataset',
     'EpochBatchIterator',
     'FairseqDataset',
     'FairseqIterableDataset',
+    'FastaDataset',
     'GroupedIterator',
     'IdDataset',
     'IndexedCachedDataset',
@@ -99,6 +108,8 @@ __all__ = [
     'ResamplingDataset',
     'RightPadDataset',
     'RoundRobinZipDatasets',
+    'SampledMultiDataset',
+    'SampledMultiEpochDataset',
     'ShardedIterator',
     'SortDataset',
     'StripTokenDataset',

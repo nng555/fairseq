@@ -16,12 +16,13 @@ from fairseq.data import (
     NestedDictionaryDataset,
     NumelDataset,
     NumSamplesDataset,
-    PadDataset,
+    RightPadDataset,
     PrependTokenDataset,
     SortDataset,
     TokenBlockDataset,
 )
-from fairseq.tasks import FairseqTask, register_task
+from fairseq.tasks import register_task, LegacyFairseqTask
+from fairseq.data.shorten_dataset import maybe_shorten_dataset
 from fairseq.data.encoders.utils import get_whole_word_mask
 from fairseq import utils
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_task('masked_lm')
-class MaskedLMTask(FairseqTask):
+class MaskedLMTask(LegacyFairseqTask):
     """Task for training masked language models (e.g., BERT, RoBERTa)."""
 
     @staticmethod
@@ -58,6 +59,12 @@ class MaskedLMTask(FairseqTask):
                             help='sample random replacement words based on word frequencies')
         parser.add_argument('--mask-whole-words', default=False, action='store_true',
                             help='mask whole words; you may also want to set --bpe')
+        parser.add_argument('--shorten-method', default='none',
+                            choices=['none', 'truncate', 'random_crop'],
+                            help='if not none, shorten sequences that exceed --tokens-per-sample')
+        parser.add_argument('--shorten-data-split-list', default='',
+                            help='comma-separated list of dataset splits to apply shortening to, '
+                                 'e.g., "train,valid" (default: all dataset splits)')
 
     def __init__(self, args, dictionary):
         super().__init__(args)
@@ -94,6 +101,15 @@ class MaskedLMTask(FairseqTask):
         )
         if dataset is None:
             raise FileNotFoundError('Dataset not found: {} ({})'.format(split, split_path))
+
+        dataset = maybe_shorten_dataset(
+            dataset,
+            split,
+            self.args.shorten_data_split_list,
+            self.args.shorten_method,
+            self.args.tokens_per_sample,
+            self.args.seed,
+        )
 
         # create continuous blocks of tokens
         dataset = TokenBlockDataset(
@@ -134,17 +150,15 @@ class MaskedLMTask(FairseqTask):
                 {
                     'id': IdDataset(),
                     'net_input': {
-                        'src_tokens': PadDataset(
+                        'src_tokens': RightPadDataset(
                             src_dataset,
                             pad_idx=self.source_dictionary.pad(),
-                            left_pad=False,
                         ),
                         'src_lengths': NumelDataset(src_dataset, reduce=False),
                     },
-                    'target': PadDataset(
+                    'target': RightPadDataset(
                         tgt_dataset,
                         pad_idx=self.source_dictionary.pad(),
-                        left_pad=False,
                     ),
                     'nsentences': NumSamplesDataset(),
                     'ntokens': NumelDataset(src_dataset, reduce=True),
@@ -158,7 +172,7 @@ class MaskedLMTask(FairseqTask):
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths, sort=True):
-        src_dataset = PadDataset(
+        src_dataset = RightPadDataset(
             TokenBlockDataset(
                 src_tokens,
                 src_lengths,
@@ -168,7 +182,6 @@ class MaskedLMTask(FairseqTask):
                 break_mode='eos',
             ),
             pad_idx=self.source_dictionary.pad(),
-            left_pad=False,
         )
         src_dataset = PrependTokenDataset(src_dataset, self.source_dictionary.bos())
         src_dataset = NestedDictionaryDataset(

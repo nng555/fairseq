@@ -8,6 +8,7 @@ import os
 
 import numpy as np
 
+from fairseq import utils
 from fairseq.data import (
     ConcatSentencesDataset,
     data_utils,
@@ -25,9 +26,9 @@ from fairseq.data import (
     SoftLabelDataset,
     SortDataset,
     StripTokenDataset,
-    TruncateDataset,
 )
-from fairseq.tasks import FairseqTask, register_task
+from fairseq.tasks import register_task, LegacyFairseqTask
+from fairseq.data.shorten_dataset import maybe_shorten_dataset
 
 from . import FairseqTask, register_task
 from fairseq.data.encoders.utils import get_whole_word_mask
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_task('sentence_prediction')
-class SentencePredictionTask(FairseqTask):
+class SentencePredictionTask(LegacyFairseqTask):
     """
     Sentence (or sentence pair) prediction (classification or regression) task.
 
@@ -57,8 +58,12 @@ class SentencePredictionTask(FairseqTask):
                             help='add separator token between inputs')
         parser.add_argument('--regression-target', action='store_true', default=False)
         parser.add_argument('--no-shuffle', action='store_true', default=False)
-        parser.add_argument('--truncate-sequence', action='store_true', default=False,
-                            help='truncate sequence to max-positions')
+        parser.add_argument('--shorten-method', default='none',
+                            choices=['none', 'truncate', 'random_crop'],
+                            help='if not none, shorten sequences that exceed --tokens-per-sample')
+        parser.add_argument('--shorten-data-split-list', default='',
+                            help='comma-separated list of dataset splits to apply shortening to, '
+                                 'e.g., "train,valid" (default: all dataset splits)')
         parser.add_argument('--add-prev-output-tokens', action='store_true', default=False,
                             help='add prev_output_tokens to sample, used for encoder-decoder arch')
         parser.add_argument('--input0-mask', action='store_true', default=False,
@@ -217,8 +222,14 @@ class SentencePredictionTask(FairseqTask):
         with data_utils.numpy_seed(self.args.seed):
             shuffle = np.random.permutation(len(src_tokens))
 
-        if self.args.truncate_sequence:
-            src_tokens = TruncateDataset(src_tokens, self.args.max_positions)
+        src_tokens = maybe_shorten_dataset(
+            src_tokens,
+            split,
+            self.args.shorten_data_split_list,
+            self.args.shorten_method,
+            self.args.max_positions,
+            self.args.seed,
+        )
 
         dataset = {
             'id': IdDataset(),
@@ -268,16 +279,20 @@ class SentencePredictionTask(FairseqTask):
         else:
             label_path = "{0}.label".format(get_path('label', split))
             if os.path.exists(label_path):
+
                 def parse_regression_target(i, line):
                     values = line.split()
                     assert len(values) == self.args.num_classes, \
                         f'expected num_classes={self.args.num_classes} regression target values on line {i}, found: "{line}"'
                     return [float(x) for x in values]
-                dataset.update(
-                    target=RawLabelDataset([
-                        parse_regression_target(i, line.strip()) for i, line in enumerate(open(label_path).readlines())
-                    ])
-                )
+
+                with open(label_path) as h:
+                    dataset.update(
+                        target=RawLabelDataset([
+                            parse_regression_target(i, line.strip())
+                            for i, line in enumerate(h.readlines())
+                        ])
+                    )
 
         nested_dataset = NestedDictionaryDataset(
             dataset,

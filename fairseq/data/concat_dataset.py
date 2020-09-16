@@ -47,12 +47,12 @@ class ConcatDataset(FairseqDataset):
         sample_idx = sample_idx % self.real_sizes[dataset_idx]
         return dataset_idx, sample_idx
 
-    def collater(self, samples):
+    def collater(self, samples, **extra_args):
         # For now only supports datasets with same underlying collater implementations
         if hasattr(self.datasets[0], 'collater'):
-            return self.datasets[0].collater(samples)
+            return self.datasets[0].collater(samples, **extra_args)
         else:
-            return default_collate(samples)
+            return default_collate(samples, **extra_args)
 
     def size(self, idx: int):
         """
@@ -97,6 +97,10 @@ class ConcatDataset(FairseqDataset):
             if getattr(ds, 'supports_prefetch', False):
                 ds.prefetch([(i - frm) % real_size for i in indices if frm <= i < to])
             frm = to
+
+    @property
+    def can_reuse_epoch_itr_across_epochs(self):
+        return all(d.can_reuse_epoch_itr_across_epochs for d in self.datasets)
 
     def set_epoch(self, epoch):
         super().set_epoch(epoch)

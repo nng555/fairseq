@@ -11,6 +11,7 @@ import contextlib
 from itertools import chain
 import logging
 import sys
+import time
 from typing import Any, Dict, List
 
 import torch
@@ -63,8 +64,13 @@ class Trainer(object):
         elif args.bf16:
             self._criterion = self._criterion.to(dtype=torch.bfloat16)
             self._model = self._model.to(dtype=torch.bfloat16)
-        self._criterion = self._criterion.to(device=self.device)
-        self._model = self._model.to(device=self.device)
+        if not args.pipeline_model_parallel:
+            self._criterion = self._criterion.to(device=self.device)
+            self._model = self._model.to(device=self.device)
+        self.pipeline_model_parallel = args.pipeline_model_parallel
+        self.last_device = None
+        if self.cuda and self.pipeline_model_parallel:
+            self.last_device = torch.device(args.pipeline_devices[-1])
 
         # check that shared parameters are preserved after device transfer
         for shared_param in shared_params:
@@ -95,7 +101,24 @@ class Trainer(object):
         if self.quantizer is not None:
             self.quantizer.set_trainer(self)
 
+        # get detailed cuda environment
+        if self.cuda:
+            self.cuda_env = utils.CudaEnvironment()
+            if self.data_parallel_world_size > 1:
+                self.cuda_env_arr = distributed_utils.all_gather_list(self.cuda_env)
+            else:
+                self.cuda_env_arr = [self.cuda_env]
+            if self.data_parallel_rank == 0:
+                utils.CudaEnvironment.pretty_print_cuda_env_list(self.cuda_env_arr)
+        else:
+            self.cuda_env = None
+            self.cuda_env_arr = None
+
         metrics.log_start_time("wall", priority=790, round=0)
+
+        self._start_time = time.time()
+        self._previous_training_time = 0
+        self._cumulative_training_time = None
 
     def reinitialize(self):
         """Reinitialize the Trainer, typically after model params change."""
@@ -196,15 +219,33 @@ class Trainer(object):
         if self.args.use_bmuf:
             self._optimizer = optim.FairseqBMUF(self.args, self._optimizer)
 
+        if self.args.zero_sharding == 'os':
+            if (self.args.fp16
+                    and not self.args.memory_efficient_fp16
+                    and not self.args.memory_efficient_bf16
+            ) and not self.args.fp16_no_flatten_grads:
+                raise ValueError(
+                        "ZeRO is incomptabile with fp16 and flattened grads. "
+                        "Please use --fp16-no-flatten-grads"
+                )
+            else:
+                optim.shard_(self.args, self._optimizer)
+
         # We should initialize the learning rate scheduler immediately after
         # building the optimizer, so that the initial learning rate is set.
         self._lr_scheduler = lr_scheduler.build_lr_scheduler(self.args, self.optimizer)
         self._lr_scheduler.step_update(0)
 
+    def consolidate_optimizer(self):
+        """For OSS, we need to consolidate the state dict."""
+        if hasattr(self.optimizer.optimizer, "consolidate_state_dict"):
+            self.optimizer.optimizer.consolidate_state_dict()
+
     def save_checkpoint(self, filename, extra_state):
         """Save all training state in a checkpoint file."""
         if self.is_data_parallel_master:  # only save one checkpoint
             extra_state["metrics"] = metrics.state_dict()
+            extra_state["previous_training_time"] = self.cumulative_training_time()
             checkpoint_utils.save_state(
                 filename,
                 self.args,
@@ -278,6 +319,10 @@ class Trainer(object):
                 )
             )
 
+            if "previous_training_time" in extra_state:
+                self._previous_training_time = extra_state["previous_training_time"]
+                self._start_time = time.time()
+
             self.lr_step(epoch)
 
             if "metrics" in extra_state and not reset_meters:
@@ -299,6 +344,7 @@ class Trainer(object):
         load_dataset=True,
         data_selector=None,
         shard_batch_itr=True,
+        disable_iterator_cache=False,
     ):
         """Return an EpochBatchIterator over the training set for a given epoch."""
         if load_dataset:
@@ -324,12 +370,15 @@ class Trainer(object):
             num_shards=self.data_parallel_world_size if shard_batch_itr else 1,
             shard_id=self.data_parallel_rank if shard_batch_itr else 0,
             num_workers=self.args.num_workers,
-            epoch=epoch
+            epoch=epoch,
+            data_buffer_size=self.args.data_buffer_size,
+            disable_iterator_cache=disable_iterator_cache,
         )
 
     def get_valid_iterator(
         self,
         subset,
+        disable_iterator_cache=False,
     ):
         """Return an EpochBatchIterator over given validation subset for a given epoch."""
         return self.task.get_batch_iterator(
@@ -345,16 +394,26 @@ class Trainer(object):
             seed=self.args.seed,
             num_shards=self.data_parallel_world_size,
             shard_id=self.data_parallel_rank,
-            num_workers=self.args.num_workers
+            num_workers=self.args.num_workers,
+            data_buffer_size=self.args.data_buffer_size,
+            disable_iterator_cache=disable_iterator_cache,
         )
 
     def begin_epoch(self, epoch):
         """Called at the beginning of each epoch."""
+        logger.info("begin training epoch {}".format(epoch))
+
         if self.quantizer is not None:
             self.quantizer.begin_epoch(epoch)
 
         # task specific setup per epoch
         self.task.begin_epoch(epoch, self.get_model())
+
+        if self.tpu:
+            import torch_xla.core.xla_model as xm
+
+            xm.rendezvous('begin_epoch')  # wait for all workers
+            xm.mark_step()
 
     @metrics.aggregate("train")
     def train_step(self, samples, raise_oom=False):
@@ -426,6 +485,10 @@ class Trainer(object):
                     )
                     ooms += 1
                     self.zero_grad()
+                    if self.cuda:
+                        torch.cuda.empty_cache()
+                    if self.args.distributed_world_size == 1:
+                        return None
                 else:
                     raise e
 
@@ -451,9 +514,14 @@ class Trainer(object):
 
         # gather logging outputs from all replicas
         if self._sync_stats():
-            logging_outputs, (sample_size, ooms) = self._aggregate_logging_outputs(
-                logging_outputs, sample_size, ooms, ignore=is_dummy_batch,
+            train_time = self._local_cumulative_training_time()
+            logging_outputs, (sample_size, ooms, total_train_time) = self._aggregate_logging_outputs(
+                logging_outputs, sample_size, ooms, train_time, ignore=is_dummy_batch,
             )
+            self._cumulative_training_time = total_train_time / self.data_parallel_world_size
+
+        if hasattr(self.model, 'all_reduce'):
+            self.model.all_reduce()
 
         overflow = False
         try:
@@ -462,17 +530,19 @@ class Trainer(object):
                 gradients = xm._fetch_gradients(self.optimizer.optimizer)
                 xm.all_reduce('sum', gradients, scale=1.0 / self.data_parallel_world_size)
 
-            # multiply gradients by (# GPUs / sample_size) since DDP
-            # already normalizes by the number of GPUs. Thus we get
-            # (sum_of_gradients / sample_size).
-            if not self.args.use_bmuf:
-                self.optimizer.multiply_grads(self.data_parallel_world_size / sample_size)
-            elif sample_size > 0:  # BMUF needs to check sample size
-                num = self.data_parallel_world_size if self._sync_stats() else 1
-                self.optimizer.multiply_grads(num / sample_size)
+            with torch.autograd.profiler.record_function("multiply-grads"):
+                # multiply gradients by (# GPUs / sample_size) since DDP
+                # already normalizes by the number of GPUs. Thus we get
+                # (sum_of_gradients / sample_size).
+                if not self.args.use_bmuf:
+                    self.optimizer.multiply_grads(self.data_parallel_world_size / sample_size)
+                elif sample_size > 0:  # BMUF needs to check sample size
+                    num = self.data_parallel_world_size if self._sync_stats() else 1
+                    self.optimizer.multiply_grads(num / sample_size)
 
-            # clip grads
-            grad_norm = self.clip_grad_norm(self.args.clip_norm)
+            with torch.autograd.profiler.record_function("clip-grads"):
+                # clip grads
+                grad_norm = self.clip_grad_norm(self.args.clip_norm)
 
             # check that grad norms are consistent across workers
             if (
@@ -482,10 +552,12 @@ class Trainer(object):
             ):
                 self._check_grad_norms(grad_norm)
 
-            # take an optimization step
-            self.optimizer.step()
+            with torch.autograd.profiler.record_function("optimizer"):
+                # take an optimization step
+                self.optimizer.step()
         except FloatingPointError:
-            # re-run the forward and backward pass with hooks attached to print out where it fails
+            # re-run the forward and backward pass with hooks attached to print
+            # out where it fails
             with NanDetector(self.model):
                 self.task.train_step(
                     sample, self.model, self.criterion, self.optimizer, self.get_num_updates(),
@@ -548,7 +620,13 @@ class Trainer(object):
                     torch.cuda.empty_cache()
 
         if self.args.fp16:
-            metrics.log_scalar("loss_scale", self.optimizer.scaler.loss_scale, priority=700, round=0)
+            metrics.log_scalar(
+                "loss_scale",
+                self.optimizer.scaler.loss_scale,
+                priority=700,
+                round=4,
+                weight=0,
+            )
 
         metrics.log_stop_time("train_wall")
 
@@ -695,6 +773,17 @@ class Trainer(object):
     def clip_grad_norm(self, clip_norm):
         return self.optimizer.clip_grad_norm(clip_norm, aggregate_norm_fn=None)
 
+    def cumulative_training_time(self):
+        if self._cumulative_training_time is None:
+            # single GPU
+            return self._local_cumulative_training_time()
+        else:
+            return self._cumulative_training_time
+
+    def _local_cumulative_training_time(self):
+        """Aggregate training time in seconds."""
+        return time.time() - self._start_time + self._previous_training_time
+
     def _prepare_sample(self, sample):
         if sample == "DUMMY":
             raise Exception(
@@ -707,7 +796,11 @@ class Trainer(object):
             return None
 
         if self.cuda:
-            sample = utils.move_to_cuda(sample)
+            if self.pipeline_model_parallel:
+                if 'target' in sample:
+                    sample['target'] = utils.move_to_cuda(sample['target'], device=self.last_device)
+            else:
+                sample = utils.move_to_cuda(sample)
 
         def apply_half(t):
             if t.dtype is torch.float32:
@@ -842,11 +935,32 @@ class Trainer(object):
         if self._grad_norm_buf is not None:
             self._grad_norm_buf.zero_()
             self._grad_norm_buf[self.data_parallel_rank] = grad_norm
-            distributed_utils.all_reduce(self._grad_norm_buf, group=self.data_parallel_process_group)
-            if not (self._grad_norm_buf == self._grad_norm_buf[0]).all():
+            distributed_utils.all_reduce(
+                self._grad_norm_buf,
+                group=self.data_parallel_process_group
+            )
+
+            def is_consistent(tensor):
+                max_abs_diff = torch.max(torch.abs(tensor - tensor[0]))
+                return (
+                    not torch.isfinite(tensor).any()
+                    or (max_abs_diff / (tensor[0] + 1e-6) < 1e-6).all()
+                )
+
+            if not is_consistent(self._grad_norm_buf):
+                pretty_detail = "\n".join(
+                    "rank {:3d} = {:.8f}".format(r, n)
+                    for r, n in enumerate(self._grad_norm_buf.tolist())
+                )
+                error_detail = "grad_norm across the workers:\n{}\n".format(pretty_detail)
                 raise RuntimeError(
                     "Fatal error: gradients are inconsistent between workers. "
-                    "Try --ddp-backend=no_c10d."
+                    "Try --ddp-backend=no_c10d. "
+                    "Or are you mixing up different generation of GPUs in training?"
+                    + "\n"
+                    + "-" * 80
+                    + "\n{}\n".format(error_detail)
+                    + "-" * 80
                 )
 
     def _reduce_and_log_stats(self, logging_outputs, sample_size, grad_norm=None):
@@ -869,6 +983,16 @@ class Trainer(object):
             if logging_outputs is not None:
                 self.task.reduce_metrics(logging_outputs, self.get_criterion())
                 del logging_outputs
+
+            # extra warning for criterions that don't properly log a loss value
+            if "loss" not in agg:
+                if "loss" not in self._warn_once:
+                    self._warn_once.add("loss")
+                    logger.warning(
+                        "Criterion.reduce_metrics did not log a 'loss' value, "
+                        "which may break some functionality"
+                    )
+                metrics.log_scalar("loss", -1)
 
             # support legacy interface
             if self.tpu:

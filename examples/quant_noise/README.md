@@ -1,4 +1,4 @@
-# Training with Quantization Noise for Extreme Model Compression ({Fan\*, Stock\*} *et al.*, 2019)
+# Training with Quantization Noise for Extreme Model Compression ({Fan\*, Stock\*} *et al.*, 2020)
 This page contains information for how to train and quantize models with Quantization Noise, for both scalar quantization like `int8` and Iterative Product Quantization.
 Check out our paper [here](https://arxiv.org/abs/2004.07320).
 
@@ -49,7 +49,7 @@ When evaluating a network, all quantized modules and activation hooks automatica
 #### Integration with your own code
 
 Looking to quantize your own models with Quant-Noise + Scalar Quantization?
-- Use the function `quantize_model_` implemented [here](https://github.com/pytorch/fairseq/tree/master/fairseq/modules/quantization/scalar/utils) to (1) replace all your modules by their quantized counterparts and (2) add hooks to those modules to quantize the activations.
+- Use the function `quantize_model_` implemented [here](https://github.com/pytorch/fairseq/tree/master/fairseq/modules/quantization/scalar/utils.py) to (1) replace all your modules by their quantized counterparts and (2) add hooks to those modules to quantize the activations.
 - Then, perform your training as usual. Note that in `eval()` mode, the network is always fully quantized (weights and activations) by default (`p=1`).
 
 
@@ -219,7 +219,7 @@ fairseq-train --task language_modeling /path/to/wikitext-103/data \
 To **evaluate** this model, note you need to use the `eval.py` script. The following command can be used to evaluate:
 
 ```bash
-python eval_lm.py /path/to/wikitext-103/data --path /path/to/model/checkpoint \
+fairseq-eval-lm /path/to/wikitext-103/data --path /path/to/model/checkpoint \
     --sample-break-mode complete \
     --max-tokens 3072 \
     --context-window 2560 \

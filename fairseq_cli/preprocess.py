@@ -23,7 +23,7 @@ from fairseq.binarizer import Binarizer
 logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.INFO,
+    level=os.environ.get('LOGLEVEL', 'INFO').upper(),
     stream=sys.stdout,
 )
 logger = logging.getLogger('fairseq_cli.preprocess')
@@ -108,7 +108,7 @@ def main(args):
         tgt_dict.save(dict_path(args.target_lang))
 
     def make_binary_dataset(vocab, input_prefix, output_prefix, lang, num_workers):
-        logger.info("[{}] Dictionary: {} types".format(lang, len(vocab) - 1))
+        logger.info("[{}] Dictionary: {} types".format(lang, len(vocab)))
         n_seq_tok = [0, 0]
         replaced = Counter()
 

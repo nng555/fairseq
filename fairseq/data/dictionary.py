@@ -21,10 +21,10 @@ class Dictionary(object):
     def __init__(
         self,
         *,  # begin keyword-only arguments
+        bos="<s>",
         pad="<pad>",
         eos="</s>",
         unk="<unk>",
-        bos="<s>",
         extra_special_symbols=None,
     ):
         self.unk_word, self.pad_word, self.eos_word = unk, pad, eos
@@ -101,7 +101,7 @@ class Dictionary(object):
             if utils.item(i) not in extra_symbols_to_ignore
         )
 
-        return data_utils.process_bpe_symbol(sent, bpe_symbol)
+        return data_utils.post_process(sent, bpe_symbol)
 
     def unk_string(self, escape=False):
         """Return unknown string, optionally escaped as: <<unk>>"""

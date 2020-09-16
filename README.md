@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="fairseq_logo.png" width="150">
+  <img src="docs/fairseq_logo.png" width="150">
   <br />
   <br />
   <a href="https://github.com/pytorch/fairseq/blob/master/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
@@ -13,30 +13,10 @@
 Fairseq(-py) is a sequence modeling toolkit that allows researchers and
 developers to train custom models for translation, summarization, language
 modeling and other text generation tasks.
+We provide reference implementations of various sequence modeling papers:
 
-### What's New:
+<details><summary>List of implemented papers</summary><p>
 
-
-- April 2020: [Monotonic Multihead Attention code released](examples/simultaneous_translation/README.md)
-- April 2020: [Quant-Noise code released](examples/quant_noise/README.md)
-- April 2020: [Initial model parallel support and 11B parameters unidirectional LM released](examples/megatron_11b/README.md)
-- March 2020: [Byte-level BPE code released](examples/byte_level_bpe/README.md)
-- February 2020: [mBART model and code released](examples/mbart/README.md)
-- February 2020: [Added tutorial for back-translation](https://github.com/pytorch/fairseq/tree/master/examples/backtranslation#training-your-own-model-wmt18-english-german)
-- December 2019: [fairseq 0.9.0 released](https://github.com/pytorch/fairseq/releases/tag/v0.9.0)
-- November 2019: [VizSeq released (a visual analysis toolkit for evaluating fairseq models)](https://facebookresearch.github.io/vizseq/docs/getting_started/fairseq_example)
-- November 2019: [CamemBERT model and code released](examples/camembert/README.md)
-- November 2019: [BART model and code released](examples/bart/README.md)
-- November 2019: [XLM-R models and code released](examples/xlmr/README.md)
-- September 2019: [Nonautoregressive translation code released](examples/nonautoregressive_translation/README.md)
-- August 2019: [WMT'19 models released](examples/wmt19/README.md)
-- July 2019: fairseq relicensed under MIT license
-- July 2019: [RoBERTa models and code released](examples/roberta/README.md)
-- June 2019: [wav2vec models and code released](examples/wav2vec/README.md)
-
-### Features:
-
-Fairseq provides reference implementations of various sequence-to-sequence models, including:
 - **Convolutional Neural Networks (CNN)**
   - [Language Modeling with Gated Convolutional Networks (Dauphin et al., 2017)](examples/language_model/conv_lm/README.md)
   - [Convolutional Sequence to Sequence Learning (Gehring et al., 2017)](examples/conv_seq2seq/README.md)
@@ -52,12 +32,15 @@ Fairseq provides reference implementations of various sequence-to-sequence model
   - [Scaling Neural Machine Translation (Ott et al., 2018)](examples/scaling_nmt/README.md)
   - [Understanding Back-Translation at Scale (Edunov et al., 2018)](examples/backtranslation/README.md)
   - [Adaptive Input Representations for Neural Language Modeling (Baevski and Auli, 2018)](examples/language_model/transformer_lm/README.md)
+  - [Lexically constrained decoding with dynamic beam allocation (Post & Vilar, 2018)](examples/constrained_decoding/README.md)
   - [Mixture Models for Diverse Machine Translation: Tricks of the Trade (Shen et al., 2019)](examples/translation_moe/README.md)
   - [RoBERTa: A Robustly Optimized BERT Pretraining Approach (Liu et al., 2019)](examples/roberta/README.md)
   - [Facebook FAIR's WMT19 News Translation Task Submission (Ng et al., 2019)](examples/wmt19/README.md)
   - [Jointly Learning to Align and Translate with Transformer Models (Garg et al., 2019)](examples/joint_alignment_translation/README.md )
   - [Multilingual Denoising Pre-training for Neural Machine Translation (Liu et at., 2020)](examples/mbart/README.md)
   - [Neural Machine Translation with Byte-Level Subwords (Wang et al., 2020)](examples/byte_level_bpe/README.md)
+  - [Unsupervised Quality Estimation for Neural Machine Translation (Fomicheva et al., 2020)](examples/unsupervised_quality_estimation/README.md)
+  - [wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations (Baevski et al., 2020)](examples/wav2vec/README.md)
 - **Non-autoregressive Transformers**
   - Non-Autoregressive Neural Machine Translation (Gu et al., 2017)
   - Deterministic Non-Autoregressive Neural Sequence Modeling by Iterative Refinement (Lee et al. 2018)
@@ -65,13 +48,43 @@ Fairseq provides reference implementations of various sequence-to-sequence model
   - Mask-Predict: Parallel Decoding of Conditional Masked Language Models (Ghazvininejad et al., 2019)
   - [Levenshtein Transformer (Gu et al., 2019)](examples/nonautoregressive_translation/README.md)
 
+</p></details>
 
-**Additionally:**
-- multi-GPU (distributed) training on one machine or across multiple machines
+### What's New:
+
+- August 2020: [Added lexically constrained decoding](examples/constrained_decoding/README.md)
+- August 2020: [wav2vec2 models and code released](examples/wav2vec/README.md)
+- July 2020: [Unsupervised Quality Estimation code released](examples/unsupervised_quality_estimation/README.md)
+- May 2020: [Follow fairseq on Twitter](https://twitter.com/fairseq)
+- April 2020: [Monotonic Multihead Attention code released](examples/simultaneous_translation/README.md)
+- April 2020: [Quant-Noise code released](examples/quant_noise/README.md)
+- April 2020: [Initial model parallel support and 11B parameters unidirectional LM released](examples/megatron_11b/README.md)
+<details><summary>Previous updates</summary><p>
+
+- March 2020: [Byte-level BPE code released](examples/byte_level_bpe/README.md)
+- February 2020: [mBART model and code released](examples/mbart/README.md)
+- February 2020: [Added tutorial for back-translation](https://github.com/pytorch/fairseq/tree/master/examples/backtranslation#training-your-own-model-wmt18-english-german)
+- December 2019: [fairseq 0.9.0 released](https://github.com/pytorch/fairseq/releases/tag/v0.9.0)
+- November 2019: [VizSeq released (a visual analysis toolkit for evaluating fairseq models)](https://facebookresearch.github.io/vizseq/docs/getting_started/fairseq_example)
+- November 2019: [CamemBERT model and code released](examples/camembert/README.md)
+- November 2019: [BART model and code released](examples/bart/README.md)
+- November 2019: [XLM-R models and code released](examples/xlmr/README.md)
+- September 2019: [Nonautoregressive translation code released](examples/nonautoregressive_translation/README.md)
+- August 2019: [WMT'19 models released](examples/wmt19/README.md)
+- July 2019: fairseq relicensed under MIT license
+- July 2019: [RoBERTa models and code released](examples/roberta/README.md)
+- June 2019: [wav2vec models and code released](examples/wav2vec/README.md)
+
+</p></details>
+
+### Features:
+
+- multi-GPU training on one machine or across multiple machines (data and model parallel)
 - fast generation on both CPU and GPU with multiple search algorithms implemented:
   - beam search
   - Diverse Beam Search ([Vijayakumar et al., 2016](https://arxiv.org/abs/1610.02424))
   - sampling (unconstrained, top-k and top-p/nucleus)
+  - lexically constrained decoding ([Post & Vilar, 2018](examples/constrained_decoding/README.md))
 - large mini-batch training even on a single GPU via delayed updates
 - mixed precision training (trains faster with less GPU memory on [NVIDIA tensor cores](https://developer.nvidia.com/tensor-cores))
 - extensible: easily register new models, criterions, tasks, optimizers and learning rate schedulers
@@ -86,41 +99,32 @@ en2de.translate('Hello world', beam=5)
 See the PyTorch Hub tutorials for [translation](https://pytorch.org/hub/pytorch_fairseq_translation/)
 and [RoBERTa](https://pytorch.org/hub/pytorch_fairseq_roberta/) for more examples.
 
-![Model](fairseq.gif)
-
 # Requirements and Installation
 
 * [PyTorch](http://pytorch.org/) version >= 1.4.0
 * Python version >= 3.6
 * For training new models, you'll also need an NVIDIA GPU and [NCCL](https://github.com/NVIDIA/nccl)
+* **To install fairseq** and develop locally:
+```bash
+git clone https://github.com/pytorch/fairseq
+cd fairseq
+pip install --editable ./
+
+# on MacOS:
+# CFLAGS="-stdlib=libc++" pip install --editable ./
+```
 * **For faster training** install NVIDIA's [apex](https://github.com/NVIDIA/apex) library:
 ```bash
 git clone https://github.com/NVIDIA/apex
 cd apex
-pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" --global-option="--deprecated_fused_adam" --global-option="--xentropy" --global-option="--fast_multihead_attn" ./
+pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" \
+  --global-option="--deprecated_fused_adam" --global-option="--xentropy" \
+  --global-option="--fast_multihead_attn" ./
 ```
-
-To install fairseq:
-```bash
-pip install fairseq
-```
-
-On MacOS:
-```bash
-CFLAGS="-stdlib=libc++" pip install fairseq
-```
-
-If you use Docker make sure to increase the shared memory size either with
+* **For large datasets** install [PyArrow](https://arrow.apache.org/docs/python/install.html#using-pip): `pip install pyarrow`
+* If you use Docker make sure to increase the shared memory size either with
 `--ipc=host` or `--shm-size` as command line options to `nvidia-docker run`.
 
-**Installing from source**
-
-To install fairseq from source and develop locally:
-```bash
-git clone https://github.com/pytorch/fairseq
-cd fairseq
-pip install --editable .
-```
 
 # Getting Started
 
@@ -135,12 +139,15 @@ as well as example training and evaluation commands.
 
 - [Translation](examples/translation/README.md): convolutional and transformer models are available
 - [Language Modeling](examples/language_model/README.md): convolutional and transformer models are available
-- [wav2vec](examples/wav2vec/README.md): wav2vec large model is available
 
 We also have more detailed READMEs to reproduce results from specific papers:
-- [Training with Quantization Noise for Extreme Model Compression](examples/quant_noise/README.md)
+- [wav2vec 2.0: A Framework for Self-Supervised Learning of Speech Representations (Baevski et al., 2020)](examples/wav2vec/README.md)
+- [Unsupervised Quality Estimation for Neural Machine Translation (Fomicheva et al., 2020)](examples/unsupervised_quality_estimation/README.md)
+- [Training with Quantization Noise for Extreme Model Compression ({Fan*, Stock*} et al., 2020)](examples/quant_noise/README.md)
 - [Neural Machine Translation with Byte-Level Subwords (Wang et al., 2020)](examples/byte_level_bpe/README.md)
-- [Jointly Learning to Align and Translate with Transformer Models (Garg et al., 2019)](examples/joint_alignment_translation/README.md )
+- [Multilingual Denoising Pre-training for Neural Machine Translation (Liu et at., 2020)](examples/mbart/README.md)
+- [Reducing Transformer Depth on Demand with Structured Dropout (Fan et al., 2019)](examples/layerdrop/README.md)
+- [Jointly Learning to Align and Translate with Transformer Models (Garg et al., 2019)](examples/joint_alignment_translation/README.md)
 - [Levenshtein Transformer (Gu et al., 2019)](examples/nonautoregressive_translation/README.md)
 - [Facebook FAIR's WMT19 News Translation Task Submission (Ng et al., 2019)](examples/wmt19/README.md)
 - [RoBERTa: A Robustly Optimized BERT Pretraining Approach (Liu et al., 2019)](examples/roberta/README.md)
@@ -156,10 +163,12 @@ We also have more detailed READMEs to reproduce results from specific papers:
 
 # Join the fairseq community
 
+* Twitter: https://twitter.com/fairseq
 * Facebook page: https://www.facebook.com/groups/fairseq.users
 * Google group: https://groups.google.com/forum/#!forum/fairseq-users
 
 # License
+
 fairseq(-py) is MIT-licensed.
 The license applies to the pre-trained models as well.
 

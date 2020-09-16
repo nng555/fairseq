@@ -175,9 +175,11 @@ mkdir -p checkpoints/fconv_wmt_en_de
 fairseq-train \
     data-bin/wmt17_en_de \
     --arch fconv_wmt_en_de \
-    --lr 0.5 --clip-norm 0.1 --dropout 0.2 --max-tokens 4000 \
+    --dropout 0.2 \
     --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
-    --lr-scheduler fixed --force-anneal 50 \
+    --optimizer nag --clip-norm 0.1 \
+    --lr 0.5 --lr-scheduler fixed --force-anneal 50 \
+    --max-tokens 4000 \
     --save-dir checkpoints/fconv_wmt_en_de
 
 # Evaluate
@@ -205,10 +207,12 @@ fairseq-preprocess \
 mkdir -p checkpoints/fconv_wmt_en_fr
 fairseq-train \
     data-bin/wmt14_en_fr \
-    --lr 0.5 --clip-norm 0.1 --dropout 0.1 --max-tokens 3000 \
-    --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
-    --lr-scheduler fixed --force-anneal 50 \
     --arch fconv_wmt_en_fr \
+    --dropout 0.1 \
+    --criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
+    --optimizer nag --clip-norm 0.1 \
+    --lr 0.5 --lr-scheduler fixed --force-anneal 50 \
+    --max-tokens 3000 \
     --save-dir checkpoints/fconv_wmt_en_fr
 
 # Evaluate
@@ -225,7 +229,7 @@ train a multilingual `{de,fr}-en` translation model using the IWSLT'17 datasets.
 
 Note that we use slightly different preprocessing here than for the IWSLT'14
 En-De data above. In particular we learn a joint BPE code for all three
-languages and use interactive.py and sacrebleu for scoring the test set.
+languages and use fairseq-interactive and sacrebleu for scoring the test set.
 
 ```bash
 # First install sacrebleu and sentencepiece

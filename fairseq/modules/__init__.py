@@ -12,6 +12,7 @@ from .cross_entropy import cross_entropy
 from .downsampled_multihead_attention import DownsampledMultiHeadAttention
 from .dynamic_convolution import DynamicConv, DynamicConv1dTBC
 from .dynamic_crf_layer import DynamicCRF
+from .fairseq_dropout import FairseqDropout
 from .fp32_group_norm import Fp32GroupNorm
 from .gelu import gelu, gelu_accurate
 from .grad_multiply import GradMultiply
@@ -24,10 +25,12 @@ from .lightweight_convolution import LightweightConv, LightweightConv1dTBC
 from .linearized_convolution import LinearizedConvolution
 from .multihead_attention import MultiheadAttention
 from .positional_embedding import PositionalEmbedding
+from .same_pad import SamePad
 from .scalar_bias import ScalarBias
 from .sinusoidal_positional_embedding import SinusoidalPositionalEmbedding
 from .transformer_sentence_encoder_layer import TransformerSentenceEncoderLayer
 from .transformer_sentence_encoder import TransformerSentenceEncoder
+from .transpose_last import TransposeLast
 from .unfold import unfold1d
 from .transformer_layer import TransformerDecoderLayer, TransformerEncoderLayer
 from .vggblock import VGGBlock
@@ -43,6 +46,7 @@ __all__ = [
     'DynamicConv1dTBC',
     'DynamicConv',
     'DynamicCRF',
+    'FairseqDropout',
     'Fp32GroupNorm',
     'Fp32LayerNorm',
     'gelu',
@@ -58,12 +62,14 @@ __all__ = [
     'LinearizedConvolution',
     'MultiheadAttention',
     'PositionalEmbedding',
+    'SamePad',
     'ScalarBias',
     'SinusoidalPositionalEmbedding',
     'TransformerSentenceEncoderLayer',
     'TransformerSentenceEncoder',
     'TransformerDecoderLayer',
     'TransformerEncoderLayer',
+    'TransposeLast',
     'VGGBlock',
     'unfold1d',
 ]

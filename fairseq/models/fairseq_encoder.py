@@ -12,8 +12,8 @@ EncoderOut = NamedTuple(
     "EncoderOut",
     [
         ("encoder_out", Tensor),  # T x B x C
-        ("encoder_padding_mask", Tensor),  # B x T
-        ("encoder_embedding", Tensor),  # B x T x C
+        ("encoder_padding_mask", Optional[Tensor]),  # B x T
+        ("encoder_embedding", Optional[Tensor]),  # B x T x C
         ("encoder_states", Optional[List[Tensor]]),  # List[T x B x C]
         ("src_tokens", Optional[Tensor]),  # B x T
         ("src_lengths", Optional[Tensor]),  # B x 1
@@ -81,3 +81,11 @@ class FairseqEncoder(nn.Module):
     def upgrade_state_dict(self, state_dict):
         """Upgrade a (possibly old) state dict for new versions of fairseq."""
         return state_dict
+
+    def set_num_updates(self, num_updates):
+        """State from trainer to pass along to model at every update."""
+
+        def _apply(m):
+            if hasattr(m, 'set_num_updates') and m != self:
+                m.set_num_updates(num_updates)
+        self.apply(_apply)

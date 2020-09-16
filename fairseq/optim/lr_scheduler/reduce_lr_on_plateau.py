@@ -5,11 +5,11 @@
 
 import torch.optim.lr_scheduler
 
-from . import FairseqLRScheduler, register_lr_scheduler
+from . import register_lr_scheduler, LegacyFairseqLRScheduler
 
 
 @register_lr_scheduler('reduce_lr_on_plateau')
-class ReduceLROnPlateau(FairseqLRScheduler):
+class ReduceLROnPlateau(LegacyFairseqLRScheduler):
     """
     Decay the LR by a factor every time the validation loss plateaus.
     Also comes with optional warmup phase, where we linearly increase
@@ -34,7 +34,8 @@ class ReduceLROnPlateau(FairseqLRScheduler):
                 ' Consider --lr-scheduler=fixed instead.'
             )
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer.optimizer, patience=0, factor=args.lr_shrink,
+            self.optimizer.optimizer, patience=args.lr_patience, factor=args.lr_shrink,
+            mode='max' if args.maximize_best_checkpoint_metric else 'min',
             threshold=args.lr_threshold)
         warmup_end_lr = args.lr[0]
         # if no warm up, sets initial lr to be args.lr[0]
@@ -44,9 +45,11 @@ class ReduceLROnPlateau(FairseqLRScheduler):
         # linearly warmup for the first args.warmup_updates
         if args.warmup_updates > 0:
             self.lr_step = (warmup_end_lr - args.warmup_init_lr) / args.warmup_updates
+
         # this flag is either set from arg when no warm up, or set by
         # step_update() when warmup finishes
         self.warmup_end = True if args.warmup_updates <= 0 else False
+
         # initial learning rate
         # this self.lr is used only during init and/or warm up period
         self.lr = args.warmup_init_lr
@@ -59,8 +62,11 @@ class ReduceLROnPlateau(FairseqLRScheduler):
         parser.add_argument('--lr-shrink', default=0.1, type=float, metavar='LS',
                             help='shrink factor for annealing, lr_new = (lr * lr_shrink)')
         parser.add_argument('--lr-threshold', default=1e-4, type=float, metavar='LT',
-                            help='Threshold for measuring the new optimum, \
-                            to only focus on significant changes')
+                            help='threshold for measuring the new optimum, '
+                                 'to only focus on significant changes')
+        parser.add_argument('--lr-patience', default=0, type=int,
+                            help='number of epochs with no improvement after which '
+                                 'learning rate will be reduced')
         parser.add_argument('--warmup-updates', default=0, type=int, metavar='N',
                             help='warmup the learning rate linearly for the first N updates')
         parser.add_argument('--warmup-init-lr', default=-1, type=float, metavar='LR',

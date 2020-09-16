@@ -28,6 +28,15 @@ class FairseqOptimizer(object):
             raise ValueError('_optimizer must be an instance of torch.optim.Optimizer')
         return self._optimizer
 
+    @optimizer.setter
+    def optimizer(self, optimizer):
+        """Reset optimizer instance."""
+        if not hasattr(self, '_optimizer'):
+            raise NotImplementedError
+        if not isinstance(self._optimizer, torch.optim.Optimizer):
+            raise ValueError('_optimizer must be an instance of torch.optim.Optimizer')
+        self._optimizer = optimizer
+
     @property
     def optimizer_config(self):
         """
@@ -41,20 +50,24 @@ class FairseqOptimizer(object):
     @property
     def params(self):
         """Return an iterable of the parameters held by the optimizer."""
-        for param_group in self.optimizer.param_groups:
+        for param_group in self.param_groups:
             for p in param_group['params']:
                 yield p
+
+    @property
+    def param_groups(self):
+        return self.optimizer.param_groups
 
     def __getstate__(self):
         return self._optimizer.__getstate__()
 
     def get_lr(self):
         """Return the current learning rate."""
-        return self.optimizer.param_groups[0]['lr']
+        return self.param_groups[0]['lr']
 
     def set_lr(self, lr):
         """Set the learning rate."""
-        for param_group in self.optimizer.param_groups:
+        for param_group in self.param_groups:
             param_group['lr'] = lr
 
     def state_dict(self):
@@ -73,7 +86,7 @@ class FairseqOptimizer(object):
 
         if optimizer_overrides is not None and len(optimizer_overrides) > 0:
             # override learning rate, momentum, etc. with latest values
-            for group in self.optimizer.param_groups:
+            for group in self.param_groups:
                 group.update(optimizer_overrides)
 
     def backward(self, loss):
@@ -90,9 +103,12 @@ class FairseqOptimizer(object):
         """Clips gradient norm."""
         return utils.clip_grad_norm_(self.params, max_norm, aggregate_norm_fn)
 
-    def step(self, closure=None):
+    def step(self, closure=None, scale=1.):
         """Performs a single optimization step."""
-        self.optimizer.step(closure)
+        if self.supports_step_with_scale:
+            self.optimizer.step(closure, scale=scale)
+        else:
+            self.optimizer.step(closure)
 
     def zero_grad(self):
         """Clears the gradients of all optimized parameters."""
@@ -107,6 +123,12 @@ class FairseqOptimizer(object):
         return False
 
     @property
+    def supports_step_with_scale(self):
+        if hasattr(self.optimizer, 'supports_step_with_scale'):
+            return self.optimizer.supports_step_with_scale
+        return False
+
+    @property
     def supports_flat_params(self):
         """
         Whether the optimizer supports collapsing of the model
@@ -118,3 +140,9 @@ class FairseqOptimizer(object):
 
     def average_params(self):
         pass
+
+
+class LegacyFairseqOptimizer(FairseqOptimizer):
+
+    def __init__(self, args):
+        self.args = args

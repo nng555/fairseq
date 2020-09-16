@@ -3,11 +3,11 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from . import FairseqLRScheduler, register_lr_scheduler
+from . import register_lr_scheduler, LegacyFairseqLRScheduler
 
 
 @register_lr_scheduler('fixed')
-class FixedSchedule(FairseqLRScheduler):
+class FixedSchedule(LegacyFairseqLRScheduler):
     """Decay the LR on a fixed schedule."""
 
     def __init__(self, args, optimizer):
@@ -33,6 +33,13 @@ class FixedSchedule(FairseqLRScheduler):
         parser.add_argument('--warmup-updates', default=0, type=int, metavar='N',
                             help='warmup the learning rate linearly for the first N updates')
         # fmt: on
+
+    def state_dict(self):
+        return {'lr': self.lr}
+
+    def load_state_dict(self, state_dict):
+        if 'lr' in state_dict:
+            self.lr = state_dict['lr']
 
     def get_next_lr(self, epoch):
         lrs = self.args.lr

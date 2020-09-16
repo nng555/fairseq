@@ -19,14 +19,13 @@ from fairseq.data import LMContextWindowDataset
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from fairseq.sequence_scorer import SequenceScorer
-from fairseq.options import add_distributed_training_args
 from fairseq import distributed_utils
 
 
 logging.basicConfig(
     format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.INFO,
+    level=os.environ.get('LOGLEVEL', 'INFO').upper(),
 )
 logger = logging.getLogger('fairseq_cli.eval_lm')
 
@@ -105,7 +104,7 @@ def main(parsed_args, **unused_kwargs):
 
     # Optimize ensemble for generation and set the source and dest dicts on the model (required by scorer)
     for model in models:
-        model.make_generation_fast_()
+        model.prepare_for_inference_(args)
         if args.fp16:
             model.half()
         if use_cuda:
@@ -126,6 +125,7 @@ def main(parsed_args, **unused_kwargs):
         num_shards=args.num_shards,
         shard_id=args.shard_id,
         num_workers=args.num_workers,
+        data_buffer_size=args.data_buffer_size,
     ).next_epoch_itr(shuffle=False)
     progress = progress_bar.progress_bar(
         itr,
@@ -177,7 +177,7 @@ def main(parsed_args, **unused_kwargs):
             tgt_len = tokens.numel()
             pos_scores = hypo['positional_scores'].float()
 
-            if args.add_bos_token:
+            if getattr(args, 'add_bos_token', False):
                 assert hypo['tokens'][0].item() == task.target_dictionary.bos()
                 tokens = tokens[1:]
                 pos_scores = pos_scores[1:]

@@ -18,17 +18,27 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
+from fairseq.data import iterators
 from fairseq.logging.meters import safe_round
 from fairseq.modules import gelu, gelu_accurate
 from fairseq.modules.multihead_attention import MultiheadAttention
 from torch import Tensor
 
+try:
+    from amp_C import multi_tensor_l2norm
+    multi_tensor_l2norm_available = True
+except ImportError:
+    multi_tensor_l2norm_available = False
+
 
 logger = logging.getLogger(__name__)
 
 
+MANIFOLD_PATH_SEP = "|"
+
+
 def split_paths(paths: str) -> List[str]:
-    return paths.split(os.pathsep) if "://" not in paths else paths.split("|")
+    return paths.split(os.pathsep) if "://" not in paths else paths.split(MANIFOLD_PATH_SEP)
 
 
 def load_ensemble_for_inference(filenames, task, model_arg_overrides=None):
@@ -64,9 +74,13 @@ def apply_to_sample(f, sample):
     return _apply(sample)
 
 
-def move_to_cuda(sample):
+def move_to_cuda(sample, device=None):
+    device = device or torch.cuda.current_device()
+
     def _move_to_cuda(tensor):
-        return tensor.cuda()
+        # non_blocking is ignored if tensor is not pinned, so we can always set
+        # to True (see github.com/PyTorchLightning/pytorch-lightning/issues/620)
+        return tensor.cuda(device=device, non_blocking=True)
 
     return apply_to_sample(_move_to_cuda, sample)
 
@@ -250,6 +264,30 @@ def item(tensor):
     return tensor
 
 
+def multi_tensor_total_norm(grads, chunk_size=2048*32) -> torch.Tensor:
+    per_device_grads = {}
+    norms = []
+    for grad in grads:
+        device = grad.device
+        cur_device_grads = per_device_grads.get(device)
+        if cur_device_grads is None:
+            cur_device_grads = []
+            per_device_grads[device] = cur_device_grads
+        cur_device_grads.append(grad)
+    for device in per_device_grads.keys():
+        cur_device_grads = per_device_grads[device]
+        if device.type == "cuda":
+            # TODO(msb) return has_inf
+            has_inf = torch.zeros((1, 1), dtype=torch.int, device=device)
+            with torch.cuda.device(device):
+                norm = multi_tensor_l2norm(chunk_size, has_inf, [cur_device_grads], False)
+            norms.append(norm[0].to(torch.cuda.current_device()))
+        else:
+            norms += [torch.norm(g, p=2, dtype=torch.float32) for g in cur_device_grads]
+    total_norm = torch.norm(torch.stack(norms))
+    return total_norm
+
+
 def clip_grad_norm_(params, max_norm, aggregate_norm_fn=None) -> torch.Tensor:
     if isinstance(params, torch.Tensor):
         params = [params]
@@ -262,9 +300,21 @@ def clip_grad_norm_(params, max_norm, aggregate_norm_fn=None) -> torch.Tensor:
             return torch.tensor(0.)
 
     if len(grads) == 1:
-        total_norm = torch.norm(grads[0])
+        total_norm = torch.norm(grads[0], p=2, dtype=torch.float32)
     else:
-        total_norm = torch.norm(torch.stack([torch.norm(g) for g in grads]))
+        if multi_tensor_l2norm_available:
+            total_norm = multi_tensor_total_norm(grads)
+        else:
+            device = torch.device('cpu')
+            if torch.cuda.is_available():
+                warnings.warn(
+                    "amp_C fused kernels unavailable, disabling multi_tensor_l2norm; "
+                    "you may get better performance by installing NVIDIA's apex library"
+                )
+                device = torch.cuda.current_device()
+            total_norm = torch.norm(
+                torch.stack([torch.norm(g, p=2, dtype=torch.float32).to(device) for g in grads])
+            )
 
     if aggregate_norm_fn is not None:
         total_norm = aggregate_norm_fn(total_norm)
@@ -356,7 +406,6 @@ def import_user_module(args):
         if module_name not in sys.modules:
             sys.path.insert(0, module_parent)
             importlib.import_module(module_name)
-            sys.path.pop(0)
 
 
 def softmax(x, dim: int, onnx_trace: bool = False):
@@ -420,7 +469,7 @@ def get_available_activation_fns() -> List:
 
 
 @contextlib.contextmanager
-def eval(model):
+def model_eval(model):
     is_training = model.training
     model.eval()
     yield
@@ -484,8 +533,8 @@ def get_token_to_word_mapping(tokens, exclude_list):
 
 
 def extract_hard_alignment(attn, src_sent, tgt_sent, pad, eos):
-    tgt_valid = ((tgt_sent != pad) & (tgt_sent != eos)).nonzero().squeeze(dim=-1)
-    src_invalid = ((src_sent == pad) | (src_sent == eos)).nonzero().squeeze(dim=-1)
+    tgt_valid = ((tgt_sent != pad) & (tgt_sent != eos)).nonzero(as_tuple=False).squeeze(dim=-1)
+    src_invalid = ((src_sent == pad) | (src_sent == eos)).nonzero(as_tuple=False).squeeze(dim=-1)
     src_token_to_word = get_token_to_word_mapping(src_sent, [eos, pad])
     tgt_token_to_word = get_token_to_word_mapping(tgt_sent, [eos, pad])
     alignment = []
@@ -516,3 +565,78 @@ def new_arange(x, *size):
 def get_tpu_device(args):
     import torch_xla.core.xla_model as xm
     return xm.xla_device()
+
+
+def tpu_data_loader(itr):
+    import torch_xla.core.xla_model as xm
+    import torch_xla.distributed.parallel_loader as pl
+
+    xm.rendezvous("tpu_data_loader")  # wait for all workers
+    xm.mark_step()
+    device = xm.xla_device()
+    return iterators.CountingIterator(
+        pl.ParallelLoader(itr, [device]).per_device_loader(device),
+        start=getattr(itr, "n", 0),
+        total=len(itr),
+    )
+
+
+class CudaEnvironment(object):
+    def __init__(self):
+        cur_device = torch.cuda.current_device()
+        prop = torch.cuda.get_device_properties("cuda:{}".format(cur_device))
+        self.name = prop.name
+        self.major = prop.major
+        self.minor = prop.minor
+        self.total_memory_in_GB = prop.total_memory / 1024 / 1024 / 1024
+
+    @staticmethod
+    def pretty_print_cuda_env_list(cuda_env_list):
+        """
+        Given a list of CudaEnviorments, pretty print them
+        """
+        num_workers = len(cuda_env_list)
+        center = "CUDA enviroments for all {} workers".format(num_workers)
+        banner_len = 40 - len(center) // 2
+        first_line = "*" * banner_len + center + "*" * banner_len
+        logger.info(first_line)
+        for r, env in enumerate(cuda_env_list):
+            logger.info(
+                "rank {:3d}: ".format(r)
+                + "capabilities = {:2d}.{:<2d} ; ".format(env.major, env.minor)
+                + "total memory = {:.3f} GB ; ".format(env.total_memory_in_GB)
+                + "name = {:40s}".format(env.name)
+            )
+        logger.info(first_line)
+
+
+def csv_str_list(x):
+    return x.split(',')
+
+
+def eval_str_list(x, type=float):
+    if x is None:
+        return None
+    if isinstance(x, str):
+        x = eval(x)
+    try:
+        return list(map(type, x))
+    except TypeError:
+        return [type(x)]
+
+
+def eval_str_dict(x, type=dict):
+    if x is None:
+        return None
+    if isinstance(x, str):
+        x = eval(x)
+    return x
+
+
+def eval_bool(x, default=False):
+    if x is None:
+        return default
+    try:
+        return bool(eval(x))
+    except TypeError:
+        return default
