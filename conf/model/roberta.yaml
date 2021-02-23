@@ -1,0 +1,8 @@
+train:
+  arch: roberta_base
+  num_classes: 3
+  lr: 1e-05
+  warmup_updates: eval:int((${data.num_sents}/32)*10*6/100)
+  max_sentences: eval:int(32/int("${slurm.gres}"[-1]))
+  update_freq: 1
+  save_interval_updates: 500

@@ -1,0 +1,51 @@
+slurm:
+  name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - topk1_clean
+    - ${data.tdset}
+
+gen:
+  depth: 1
+  num_samples: 1
+  label_samples: 5
+  mask_prob: 0.15
+  leave_unmasked_prob: 0.1
+  random_token_prob: 0.1
+  topk: 1
+  dset: bert_topk1_clean
+  model:
+    date: 2020-02-19
+    name: 
+      - roberta_base_finetune
+      - ${slurm.train.noise}
+      - ${data.fdset}
+      - ${gen.model.bin}
+      - ${gen.model.seed}
+    bin: orig
+    seed: 69
+  batch: 4
+
+eval:
+  date: 2020-02-28
+  run_name:
+    - launch_train
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - topk1_noisy
+
+data:
+  bin: bert.topk11.clean
+  num_sents: 200000
+
+display:
+  dir:
+    date: 2020-02-28
+    name:
+      - eval_roberta_glue
+      - ???
+      - ???
+      - topk1
+      - ???
+      - ???

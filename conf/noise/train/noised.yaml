@@ -1,0 +1,11 @@
+slurm:
+  train:
+    noise: noise01
+
+train:
+  mask_prob: 0.15
+  leave_unmasked_prob: 0.1
+  random_token_prob: 0.1
+  input0_mask: true
+  input1_mask: true
+

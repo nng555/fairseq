@@ -1,0 +1,22 @@
+train:
+  warmup_updates: 1200
+  max_epoch: 15
+
+gen:
+  model:
+    date: 2020-04-12
+    bin: orig
+    seed: 2
+  batch: 8
+
+data:
+  bin: sampling_hard
+  num_sents: 150000
+
+eval:
+  model:
+    date: 2020-04-05
+
+display:
+  dir: 
+    date: 2020-04-05

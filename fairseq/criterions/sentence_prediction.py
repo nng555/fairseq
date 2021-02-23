@@ -12,14 +12,41 @@ from torch import Tensor
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 
+from fairseq.models.roberta import RobertaModel
 
 @register_criterion('sentence_prediction')
 class SentencePredictionCriterion(FairseqCriterion):
 
-    def __init__(self, task, classification_head_name, regression_target):
+    def __init__(self,
+            task,
+            classification_head_name,
+            regression_target,
+            soft_labels,
+            num_classes,
+            self_train,
+            st_model_path,
+            st_model_file,
+            st_model_data,
+            threshold):
         super().__init__(task)
         self.classification_head_name = classification_head_name
         self.regression_target = regression_target
+        self.soft_labels = soft_labels
+        self.num_classes = num_classes
+        self.self_train = self_train
+        self.threshold = threshold
+
+        if self_train:
+            print(st_model_path)
+            print(st_model_file)
+            print(st_model_data)
+            self.self_train_model = RobertaModel.from_pretrained(
+                st_model_path,
+                checkpoint_file = st_model_file,
+                data_name_or_path = st_model_data
+            )
+            self.self_train_model.eval()
+            self.self_train_model.cuda()
 
     @staticmethod
     def add_args(parser):
@@ -27,10 +54,6 @@ class SentencePredictionCriterion(FairseqCriterion):
         parser.add_argument('--classification-head-name',
                             default='sentence_classification_head',
                             help='name of the classification head to use')
-        parser.add_argument('--masked-lm-weight',
-                            default=0.5,
-                            type=float,
-                            help='amount to weight the LM loss with')
         # fmt: on
 
     def forward(self, model, sample, reduce=True):
@@ -49,11 +72,32 @@ class SentencePredictionCriterion(FairseqCriterion):
         logits, _ = model(
             **sample['net_input'],
             features_only=True,
-            classification_head_name=self.args.classification_head_name,
+            classification_head_name=self.classification_head_name,
         )
+        preds = logits.max(dim=1)[1]
 
-        if self.args.soft_labels:
-            targets = model.get_targets(sample, [logits]).view(-1, self.args.num_classes).float()
+
+        if self.self_train:
+            with torch.no_grad():
+                probs = self.self_train_model.predict(
+                            'sentence_classification_head',
+                            sample['net_input']['src_tokens'])
+                probs = torch.exp(probs)
+            if self.soft_labels:
+                self_targets = probs.view(-1, self.num_classes).float()
+                sample_size = self_targets.size()[0]
+            else:
+                _, self_targets = torch.max(probs, -1)
+                sample_size = self_targets.numel()
+
+            if self.threshold:
+                mask, _ = torch.max(probs, dim=-1)
+                mask = mask > self.threshold
+                self_targets = self_targets[mask]
+                logits = logits[mask]
+
+        if self.soft_labels:
+            targets = model.get_targets(sample, [logits]).view(-1, self.num_classes).float()
             sample_size = targets.size()[0]
         else:
             targets = model.get_targets(sample, [logits]).view(-1)
@@ -66,12 +110,17 @@ class SentencePredictionCriterion(FairseqCriterion):
                 else x.float().mean(dim).type_as(x)
             )
 
-        if not self.args.regression_target:
+        if self.self_train:
+            loss_targets = self_targets
+        else:
+            loss_targets = targets
+
+        if not self.regression_target:
             logits = F.log_softmax(logits, dim=-1, dtype=torch.float32)
-            if self.args.soft_labels:
+            if self.soft_labels:
                 loss = F.kl_div(
                     logits,
-                    targets,
+                    loss_targets,
                     reduction='none',
                 )
                 #loss = -targets * logits
@@ -80,26 +129,13 @@ class SentencePredictionCriterion(FairseqCriterion):
             else:
                 loss = F.nll_loss(
                     logits,
-                    targets,
+                    loss_targets,
                     reduction='sum',
                 )
         else:
             logits = logits.view(-1).float()
-            targets = targets.float()
-            loss = F.mse_loss(logits, targets, reduction='sum')
-
-        if self.args.masked_lm_target:
-            loss = loss * (1 - self.args.masked_lm_weight) + \
-                self.args.masked_lm_weight * F.nll_loss(
-                F.log_softmax(
-                    lm_logits.view(-1, lm_logits.size(-1)),
-                    dim=-1,
-                    dtype=torch.float32,
-                ),
-                masked_targets.view(-1),
-                reduction='sum',
-                ignore_index=self.padding_idx,
-            )
+            loss_targets = loss_targets.float()
+            loss = F.mse_loss(logits, loss_targets, reduction='sum')
 
         logging_output = {
             'loss': loss.data,
@@ -107,14 +143,19 @@ class SentencePredictionCriterion(FairseqCriterion):
             'nsentences': sample_size,
             'sample_size': sample_size,
         }
+        '''
         if not self.regression_target:
             preds = logits.argmax(dim=1)
+            print("#####################")
+            print(preds)
+            print(targets)
+            print("#####################")
             logging_output['ncorrect'] = (preds == targets).sum()
+        '''
 
-        if not self.args.regression_target:
-            preds = logits.max(dim=1)[1]
+        if not self.regression_target:
 
-            if self.args.soft_labels:
+            if self.soft_labels:
                 targets = targets.max(dim=1)[1]
 
             logging_output.update(

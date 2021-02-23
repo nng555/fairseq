@@ -1,0 +1,11 @@
+eval:
+  mask_prob: 0.15
+  random_token_prob: 0.1
+  leave_unmasked_prob: 0.1
+  input0_mask: true
+  input1_mask: true
+  reconstruct: false
+
+slurm:
+  eval:
+    noise: noise01

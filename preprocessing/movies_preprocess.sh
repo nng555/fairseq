@@ -14,14 +14,15 @@ if [ ! -f "dict.txt" ]; then
 fi
 
 SPLITS="train valid test"
-#GENRES="sst2"
 GENRES="imdb"
+#GENRES="imdb"
 FILES="input0"
-AUGS="orig"
+AUGS="sampling_0.1_soft sampling_0.2_soft sampling_0.3_soft sampling_0.4_soft sampling_0.5_soft sampling_0.6_soft"
+#AUGS="books"
 #AUGS="orig orig_0.01 orig_0.05 orig_0.1 orig_0.2 orig_0.3 orig_0.4 orig_0.5 orig_0.6 orig_0.7 orig_0.8 orig_0.9"
 #AUGS="sampling_acc_0.51_soft sampling_acc_0.55_soft sampling_acc_0.61_soft sampling_acc_0.68_soft sampling_acc_0.71_soft sampling_acc_0.76_soft sampling_acc_0.78_soft sampling_acc_0.81_soft sampling_acc_0.51_imp sampling_acc_0.55_imp sampling_acc_0.61_imp sampling_acc_0.68_imp sampling_acc_0.71_imp sampling_acc_0.76_imp sampling_acc_0.78_imp sampling_acc_0.81_imp sampling_acc_0.51_hard sampling_acc_0.55_hard sampling_acc_0.61_hard sampling_acc_0.68_hard sampling_acc_0.71_hard sampling_acc_0.76_hard sampling_acc_0.78_hard sampling_acc_0.81_hard"
 #$AUGS="orig_acc_0.51 orig_acc_0.55 orig_acc_0.61 orig_acc_0.68 orig_acc_0.71 orig_acc_0.76 orig_acc_0.78 orig_acc_0.81"
-AUGS="sampling_acc_0.5_soft sampling_acc_0.55_soft sampling_acc_0.6_soft sampling_acc_0.65_soft sampling_acc_0.7_soft sampling_acc_0.75_soft sampling_acc_0.8_soft sampling_acc_0.85_soft sampling_acc_0.9_soft sampling_acc_0.93_soft sampling_acc_0.5_hard sampling_acc_0.55_hard sampling_acc_0.6_hard sampling_acc_0.65_hard sampling_acc_0.7_hard sampling_acc_0.75_hard sampling_acc_0.8_hard sampling_acc_0.85_hard sampling_acc_0.9_hard sampling_acc_0.93_hard sampling_acc_0.5_imp"
+#AUGS="sampling_acc_0.5_soft sampling_acc_0.55_soft sampling_acc_0.6_soft sampling_acc_0.65_soft sampling_acc_0.7_soft sampling_acc_0.75_soft sampling_acc_0.8_soft sampling_acc_0.85_soft sampling_acc_0.9_soft sampling_acc_0.93_soft sampling_acc_0.5_hard sampling_acc_0.55_hard sampling_acc_0.6_hard sampling_acc_0.65_hard sampling_acc_0.7_hard sampling_acc_0.75_hard sampling_acc_0.8_hard sampling_acc_0.85_hard sampling_acc_0.9_hard sampling_acc_0.93_hard sampling_acc_0.5_imp"
 
 for GENRE in $GENRES; do
   a_folder="$DATA_FOLDER/$GENRE"

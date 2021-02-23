@@ -1,0 +1,19 @@
+train:
+  warmup_updates: eval:(int(1200*(2**(${data.fraction}-14))+1))
+  max_epoch: 40
+  soft_labels: eval:("${data.label}"=="soft")
+
+data:
+  bin: sampling_frac_${data.fraction}_${gen.mask_prob}_${data.label}_${gen.seed}
+  fraction: ~
+  label: ~
+
+gen:
+  model:
+    date: 2020-05-14
+    bin: orig_frac_${data.fraction}
+    seed: 2
+
+
+
+

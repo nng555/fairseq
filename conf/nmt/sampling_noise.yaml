@@ -1,0 +1,14 @@
+train:
+  warmup_updates: 24000
+
+gen:
+  model:
+    date: ~
+    bin: orig
+    seed: ~
+  batch: 8
+
+data:
+  bin: sampling_${gen.mask_prob}_${data.label}_${gen.seed}
+  num_sents: 600000
+  label: ~

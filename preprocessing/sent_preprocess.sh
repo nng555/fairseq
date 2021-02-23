@@ -29,38 +29,64 @@ GENRE=$2
 AUG=$3
 
 a_folder="$DATA_FOLDER/$GENRE"
-if [[ "$AUG" != *"orig"* ]] && [[ "$AUG" == *"frac"* ]]; then
-  frac=$(echo $AUG | perl -nle 'm/frac_([0-9]*)/; print $1')
-  echo $frac
-  for file in $FILES; do 
-    cat $a_folder/$AUG/train.gen.${file}_* $a_folder/orig_frac_${frac}/train.raw.$file > $a_folder/$AUG/train.raw.$file
-  done
-  cat $a_folder/$AUG/train.imp.label_* $a_folder/orig_frac_${frac}/train.raw.label > $a_folder/$AUG/train.imp.label
-  cat $a_folder/$AUG/train.raw.label_* $a_folder/orig_frac_${frac}/train.raw.label > $a_folder/$AUG/train.raw.label
-  cat $a_folder/$AUG/train.soft.label_* $a_folder/orig_frac_${frac}/train.soft.label > $a_folder/$AUG/train.soft.label
-  cp $a_folder/orig_frac_${frac}/valid* $a_folder/$AUG
-  cp $a_folder/orig_frac_${frac}/test* $a_folder/$AUG
-elif [[ "$AUG" != *"orig"* ]] && [[ "$AUG" != *"eda"* ]]; then
-  for file in $FILES; do 
-    cat $a_folder/$AUG/train.gen.${file}_* $a_folder/orig/train.raw.$file > $a_folder/$AUG/train.raw.$file
-  done
-  cat $a_folder/$AUG/train.imp.label_* $a_folder/orig/train.raw.label > $a_folder/$AUG/train.imp.label
-  cat $a_folder/$AUG/train.raw.label_* $a_folder/orig/train.raw.label > $a_folder/$AUG/train.raw.label
-  cat $a_folder/$AUG/train.soft.label_* $a_folder/orig/train.soft.label > $a_folder/$AUG/train.soft.label
+if [[ "$AUG" != *"orig"* ]] && [[ "$AUG" != *"unlabelled"* ]] && [[ "$AUG" != *"pate"* ]] ; then
+  if [[ "$AUG" == *"self_train"* ]]; then
+    echo $AUG
+    for file in $FILES; do 
+      cat $a_folder/$AUG/train.gen.${file}_* > $a_folder/$AUG/train.raw.$file
+    done
+    cat $a_folder/$AUG/train.imp.label_* > $a_folder/$AUG/train.imp.label
+    cat $a_folder/$AUG/train.raw.label_* > $a_folder/$AUG/train.raw.label
+    cat $a_folder/$AUG/train.soft.label_* > $a_folder/$AUG/train.soft.label
+    cp $a_folder/orig/valid* $a_folder/$AUG
+    cp $a_folder/orig/test* $a_folder/$AUG
+
+  elif [[ "$AUG" == *"frac"* ]] ; then
+    frac=$(echo $AUG | perl -nle 'm/frac_([0-9]*)/; print $1')
+    echo $frac
+    for file in $FILES; do 
+      cat $a_folder/$AUG/train.gen.${file}_* $a_folder/orig_frac_${frac}/train.raw.$file > $a_folder/$AUG/train.raw.$file
+    done
+    cat $a_folder/$AUG/train.imp.label_* $a_folder/orig_frac_${frac}/train.raw.label > $a_folder/$AUG/train.imp.label
+    cat $a_folder/$AUG/train.raw.label_* $a_folder/orig_frac_${frac}/train.raw.label > $a_folder/$AUG/train.raw.label
+    cat $a_folder/$AUG/train.soft.label_* $a_folder/orig_frac_${frac}/train.soft.label > $a_folder/$AUG/train.soft.label
+    cp $a_folder/orig_frac_${frac}/valid* $a_folder/$AUG
+    cp $a_folder/orig_frac_${frac}/test* $a_folder/$AUG
+  elif [[ "$AUG" != *"eda"* ]]; then
+    for file in $FILES; do 
+      cat $a_folder/$AUG/train.gen.${file}_* $a_folder/orig/train.raw.$file > $a_folder/$AUG/train.raw.$file
+    done
+    cat $a_folder/$AUG/train.imp.label_* $a_folder/orig/train.raw.label > $a_folder/$AUG/train.imp.label
+    cat $a_folder/$AUG/train.raw.label_* $a_folder/orig/train.raw.label > $a_folder/$AUG/train.raw.label
+    cat $a_folder/$AUG/train.soft.label_* $a_folder/orig/train.soft.label > $a_folder/$AUG/train.soft.label
+    cp $a_folder/orig/valid* $a_folder/$AUG
+    cp $a_folder/orig/test* $a_folder/$AUG
+  fi
+fi
+
+if [ ! -f "$a_folder/$AUG/valid.raw.input0" ]; then
   cp $a_folder/orig/valid* $a_folder/$AUG
+fi
+
+if [ ! -f "$a_folder/$AUG/test.raw.input0" ]; then
   cp $a_folder/orig/test* $a_folder/$AUG
 fi
-cp $a_folder/orig/valid* $a_folder/$AUG
-cp $a_folder/orig/test* $a_folder/$AUG
+
 
 for SPLIT in $SPLITS; do
   for file in $FILES; do
-    if [ -f "${DATA_FOLDER}/${GENRE}/${AUG}/${SPLIT}.raw.$file" ] && [ ! -f "${DATA_FOLDER}/${GENRE}/${AUG}/${SPLIT}.$file" ]; then
+    if [ -e $a_folder/$AUG/$SPLIT.filter.$file ]; then
+      tf=filter
+    else
+      tf=raw
+    fi
+
+    if [ -f "${DATA_FOLDER}/${GENRE}/${AUG}/${SPLIT}.$tf.$file" ] && [ ! -f "${DATA_FOLDER}/${GENRE}/${AUG}/${SPLIT}.$file" ]; then
       echo "BPE encoding $GENRE/$AUG/$SPLIT/$file"
       python -m examples.roberta.multiprocessing_bpe_encoder \
         --encoder-json encoder.json \
         --vocab-bpe vocab.bpe \
-        --inputs "$DATA_FOLDER/$GENRE/$AUG/$SPLIT.raw.$file" \
+        --inputs "$DATA_FOLDER/$GENRE/$AUG/$SPLIT.$tf.$file" \
         --outputs "$DATA_FOLDER/$GENRE/$AUG/$SPLIT.$file" \
         --workers 12 \
         --keep-empty;
@@ -89,6 +115,23 @@ if [ ! -d "${DATA_FOLDER}/${GENRE}/$AUG/bin/label" ]; then
     dname="soft"
   elif [[ "$AUG" == *"imp"* ]]; then
     tname="imp"
+    dname="raw"
+  elif [[ "$AUG" == *"unlabelled"* ]]; then
+    if [ -e $a_folder/$AUG/train.gen.filter.label ]; then
+      tname="gen.filter"
+      dname="raw"
+    else
+      if [ ! -e $a_folder/$AUG/train.gen.label ]; then
+        cat $a_folder/$AUG/train.gen.label_* > $a_folder/$AUG/train.gen.label
+      fi
+      if [ ! -e $a_folder/$AUG/train.soft.label ]; then
+        cat $a_folder/$AUG/train.soft.label_* > $a_folder/$AUG/train.soft.label
+      fi
+      tname="gen"
+      dname="raw"
+    fi
+  elif [[ "$AUG" == *"pate"* ]]; then
+    tname="gen"
     dname="raw"
   else
     tname="raw"

@@ -1,0 +1,29 @@
+train:
+  warmup_updates: 1200
+  max_epoch: 15
+  save_interval_updates: 200
+  keep_interval_updates: 1
+
+gen:
+  model:
+    date: 2020-04-19
+    bin: orig
+    seed: 2
+  batch: 8
+
+data:
+  bin: sampling_${gen.mask_prob}_soft
+  num_sents: 150000
+
+eval:
+  model:
+    date: 2020-04-20
+
+display:
+  dir: 
+    date: 2020-04-20
+
+#extra: n${gen.mask_prob}
+
+
+

@@ -1,0 +1,21 @@
+train:
+  warmup_updates: 1200
+  max_epoch: 15
+  save_interval_updates: 200
+  keep_interval_updates: 1
+
+gen:
+  model:
+    date: 2020-05-14
+    bin: orig_frac_${data.acc}
+    seed: 10
+  batch: 8
+
+extra: conv
+
+data:
+  bin: sampling_acc_${data.acc}_${gen.mask_prob}_imp_conv_${gen.seed}
+  num_sents: 150000
+  acc: ~
+
+

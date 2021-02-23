@@ -1,0 +1,35 @@
+slurm:
+  name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - orig
+    - ${data.tdset}
+
+eval:
+  model:
+    date: 2020-02-19
+    name: 
+      - roberta_base_finetune
+      - ${slurm.train.noise}
+      - ${data.fdset}
+      - ${eval.model.bin}
+      - ${eval.model.seed}
+    bin: orig
+    data: mnli
+    seed: 69
+
+data:
+  bin: orig
+  num_sents: 100000
+
+display:
+  dir:
+    date: 2020-02-19
+    name:
+      - eval_roberta_base
+      - ???
+      - ???
+      - orig
+      - ???
+      - ???

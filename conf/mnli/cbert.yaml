@@ -1,0 +1,3 @@
+data:
+  bin: cbert
+  num_sents: 200000

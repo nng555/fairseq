@@ -1,0 +1,32 @@
+data:
+  name: mnli
+  task: nli
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset:
+    - slate
+    - fiction
+    - telephone
+    - travel
+    - government
+  tdset:
+    - slate
+    - verbatim
+    - facetoface
+    - oup
+    - nineeleven
+    - fiction
+    - telephone
+    - travel
+    - letters
+    - government
+  noise:
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: mnli
+  data: mnli

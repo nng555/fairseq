@@ -11,6 +11,11 @@ def display_results(cfg: DictConfig):
     res_string = ""
     std_string = ""
 
+    if cfg.eval.noisy:
+        cfg.display.dir.name[0] = 'eval_noisy'
+        if cfg.eval.mask_prob:
+            cfg.display.dir.name.append(cfg.eval.mask_prob)
+
     if cfg.data.task == 'translation':
         cfg.display.dir.name[0] = 'eval_bleu'
 
@@ -30,6 +35,7 @@ def display_results(cfg: DictConfig):
 
             for tdset in cfg.display.tdset:
                 cfg.display.dir.name[5] = tdset
+                cfg.data.sdset=tdset
                 seed_res = []
 
                 for seed in empty_to_list(cfg.display.seed):

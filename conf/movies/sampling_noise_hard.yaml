@@ -1,0 +1,18 @@
+train:
+  warmup_updates: 3000
+  max_epoch: 10
+  save_interval_updates: 200
+  keep_interval_updates: 1
+
+gen:
+  model:
+    date: ~
+    bin: orig
+    seed: 2
+  batch: 8
+
+data:
+  bin: sampling_${gen.mask_prob}_hard
+  num_sents: 300000
+
+

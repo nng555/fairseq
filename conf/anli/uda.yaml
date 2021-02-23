@@ -1,0 +1,7 @@
+data:
+  bin: uda
+
+gen:
+  sampling_temp: 0.7
+  fname: ~
+

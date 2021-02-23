@@ -1,0 +1,4 @@
+slurm:
+  gres: gpu:4
+
+wait: false

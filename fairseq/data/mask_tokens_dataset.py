@@ -62,6 +62,8 @@ class MaskTokensDataset(BaseWrapperDataset):
         mask_prob: float = 0.15,
         leave_unmasked_prob: float = 0.1,
         random_token_prob: float = 0.1,
+        epoch_mask_rate: float = 0.0,
+        max_mask_rate: float = 1.0,
         freq_weighted_replacement: bool = False,
         mask_whole_words: torch.Tensor = None,
     ):
@@ -79,6 +81,8 @@ class MaskTokensDataset(BaseWrapperDataset):
         self.mask_prob = mask_prob
         self.leave_unmasked_prob = leave_unmasked_prob
         self.random_token_prob = random_token_prob
+        self.epoch_mask_rate = epoch_mask_rate
+        self.max_mask_rate = max_mask_rate
         self.mask_whole_words = mask_whole_words
 
         if random_token_prob > 0.0:
@@ -120,9 +124,14 @@ class MaskTokensDataset(BaseWrapperDataset):
 
             # decide elements to mask
             mask = np.full(sz, False)
+
+            # grow mask rate
+            mask_prob = self.mask_prob + self.epoch * self.epoch_mask_rate
+            mask_prob = min(mask_prob, self.max_mask_rate)
+
             num_mask = int(
                 # add a random number for probabilistic rounding
-                self.mask_prob * sz + np.random.rand()
+                mask_prob * sz + np.random.rand()
             )
             mask[np.random.choice(sz, num_mask, replace=False)] = True
 

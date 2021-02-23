@@ -1,0 +1,17 @@
+eval:
+  model:
+    date: ~
+
+data:
+  bin: sampling_${gen.mask_prob}_hard
+
+display:
+  dir:
+    date: ~
+
+gen:
+  model:
+    date: 2020-03-11
+    bin: orig
+    seed: 69
+

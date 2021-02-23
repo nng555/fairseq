@@ -1,0 +1,64 @@
+slurm:
+  name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - sampling_soft_2
+    - ${data.tdset}
+    - ${gen.shard}
+    - ${train.seed}
+
+gen:
+  depth: 2
+  shard: ~
+  num_shards: 8
+  num_samples: 1
+  label_samples: 1
+  mask_prob: 0.15
+  leave_unmasked_prob: 0.1
+  random_token_prob: 0.1
+  topk: -1
+  dset: bert2.sampling.soft
+  in_dset: bert.sampling.soft
+  model:
+    date: 2020-03-16
+    name: 
+      - launch_train
+      - ${data.fdset}
+      - sampling_soft
+      - ${gen.model.seed}
+    bin: bert.sampling.soft
+    seed: 2
+  batch: 8
+
+train:
+  soft_labels: true
+  save_interval_updates: 3000
+
+eval:
+  model:
+    date: 2020-03-25
+    name:
+      - launch_train
+      - ${slurm.train.noise}
+      - ${data.fdset}
+      - sampling_soft_2
+      - ${train.seed}
+    bin: bert2.sampling.soft
+    data: mnli
+  data: mnli
+
+data:
+  bin: bert2.sampling.soft
+  num_sents: 900000
+
+display:
+  dir:
+    date: 2020-03-26
+    name:
+      - eval_roberta_glue
+      - ???
+      - ???
+      - sampling_soft_2
+      - ???
+      - ???

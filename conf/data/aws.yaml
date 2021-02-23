@@ -1,0 +1,37 @@
+data:
+  name: aws
+  task: sentiment
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset:
+    - books
+    - clothing
+    - home
+    - kindle
+    - movies
+    - pets
+    - sports
+    - tech
+    - tools
+    - toys
+  tdset:
+    - books
+    - clothing
+    - home
+    - kindle
+    - movies
+    - pets
+    - sports
+    - tech
+    - tools
+    - toys
+  noise:
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: aws
+  data: aws

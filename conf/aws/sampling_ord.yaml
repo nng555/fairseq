@@ -1,0 +1,27 @@
+train:
+  warmup_updates: 1200
+  max_epoch: 15
+  soft_labels: true
+  ordinal: true
+  pooler_activation_fn: linear
+
+gen:
+  model:
+    date: 2020-04-14
+    bin: orig
+    seed: 2
+  batch: 8
+
+data:
+  bin: sampling_ord
+  num_sents: 150000
+
+eval:
+  model:
+    date: 2020-04-15
+
+display:
+  dir: 
+    date: 2020-04-15
+
+

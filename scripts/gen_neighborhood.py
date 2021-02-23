@@ -77,7 +77,7 @@ def hf_masked_encode(
 
     return torch.tensor(tokens).long(), torch.tensor(mask).long()
 
-def hf_reconstruction_prob_tok(masked_tokens, target_tokens, tokenizer, model, softmax_mask, reconstruct=False, topk=1):
+def hf_reconstruction_prob_tok(masked_tokens, target_tokens, tokenizer, model, softmax_mask, reconstruct=False, s_model=None, topk=1):
     single = False
 
     # expand batch size 1
@@ -102,73 +102,73 @@ def hf_reconstruction_prob_tok(masked_tokens, target_tokens, tokenizer, model, s
 
     outputs = model(
         masked_tokens.long().to(device=next(model.parameters()).device),
-        masked_lm_labels=target_tokens
     )
 
-    features = outputs[1]
-
+    features = outputs[0]
     logits = features[masked_index]
-    for l in logits:
-        l[softmax_mask] = float('-inf')
     probs = logits.softmax(dim=-1)
 
+    if source_model:
+        s_outputs = s_model(
+            masked_tokens.long().to(device=next(model.parameters()).device),
+        )
+        s_features = outputs[0]
+        s_logits = s_features[masked_index]
+        s_probs = s_logits.softmax(dim=-1)
+        probs = probs - s_probs
+        probs -= torch.min(probs, dim=-1).values.unsqueeze(-1)
+
+    for i in range(len(probs)):
+        probs[i][softmax_mask] = 0
 
     if (reconstruct):
 
-        # sample from topk
+        recon_prob = 0
+
+        # sample from topk if not unrestricted
         if topk != -1:
             values, indices = probs.topk(k=topk, dim=-1)
-            kprobs = values.softmax(dim=-1)
-            if (len(masked_index) > 1):
-                samples = torch.cat([idx[torch.multinomial(kprob, 1)] for kprob, idx in zip(kprobs, indices)])
-            else:
-                samples = indices[torch.multinomial(kprobs, 1)]
+            probs = values.softmax(dim=-1)
 
-        # unrestricted sampling
+        if (len(masked_index) > 1):
+            tok_samples = [torch.multinomial(kprob, 1) for kprob in kprobs]
+            samples = torch.cat([idx[tok] for idx, tok in zip(tok_samples, indices)])
+
+            probs = [kprob[tok] for kprob, tok in zip(kprobs, tok_samples)]
+            recon_prob += torch.sum(torch.log(probs)).item()
         else:
-            if (len(masked_index) > 1):
-                samples = torch.cat([torch.multinomial(prob, 1) for prob in probs])
-            else:
-                samples = torch.multinomial(probs, 1)
+            tok_sample = torch.multinomial(kprobs, 1)
+            samples = indices[tok_sample]
+            recon_prob += torch.log(kprobs[tok_sample]).item()
 
         # set samples
         masked_tokens[masked_index] = samples
         masked_fill[masked_index] = samples
 
         if single:
-            return masked_tokens[0], masked_fill[0]
+            return masked_tokens[0], masked_fill[0], recon_prob
         else:
-            return masked_tokens, masked_fill
+            return masked_tokens, masked_fill, recon_prob
 
     return torch.sum(torch.log(probs[masked_orig_enum])).item()
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
-def gen_neighborhood(cfg: DictConfig):
-    #slurm_utils.symlink_hydra(cfg, os.getcwd())
-    shard = cfg.gen.shard
-    if cfg.gen.seed is not None:
-        torch.manual_seed(cfg.gen.seed)
-        np.random.seed(cfg.gen.seed)
 
-    if cfg.gen.recon == "base":
+def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, d_path=None):
+    if recon == "base":
         r_model = RobertaModel.from_pretrained(
             '/scratch/hdd001/home/nng/roberta/roberta.base/',
             checkpoint_file = 'model.pt',
             data_name_or_path = '/scratch/hdd001/home/nng/roberta/roberta.base/'
         )
         r_encode = r_model
-        r_model.eval()
-        r_model.cuda()
-    elif cfg.gen.recon == 'large':
+    elif recon == 'large':
         r_model = RobertaModel.from_pretrained(
             '/scratch/hdd001/home/nng/roberta/roberta.large/',
             checkpoint_file = 'model.pt',
             data_name_or_path = '/scratch/hdd001/home/nng/roberta/roberta.large/'
         )
         r_encode = r_model
-        r_model.eval()
-        r_model.cuda()
-    elif cfg.gen.recon == 'distil':
+    elif recon == 'distil':
         r_encode = RobertaModel.from_pretrained(
             '/scratch/hdd001/home/nng/roberta/roberta.base/',
             checkpoint_file = 'model.pt',
@@ -178,30 +178,49 @@ def gen_neighborhood(cfg: DictConfig):
         r_encode.cuda()
         r_model = AutoModelWithLMHead.from_pretrained('distilroberta-base')
         tokenizer = AutoTokenizer.from_pretrained('distilroberta-base')
-        r_model.eval()
-        r_model.cuda()
-    elif cfg.gen.recon == 'german':
+    elif recon == 'german':
         r_model = AutoModelWithLMHead.from_pretrained('bert-base-german-cased')
         tokenizer = AutoTokenizer.from_pretrained('bert-base-german-cased')
-        r_model.eval()
-        if torch.cuda.is_available():
-            r_model.cuda()
-    elif cfg.gen.recon == 'multilingual':
+    elif recon == 'multilingual':
         tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
         r_model = AutoModelWithLMHead.from_pretrained("bert-base-multilingual-cased")
-        r_model.eval()
-        if torch.cuda.is_available():
-            r_model.cuda()
+    elif recon == 'local':
+        r_path = os.path.join('/h/nng/slurm', recon_date, slurm_utils.resolve_name(recon_name))
+        found = False
+        for f in sorted(os.listdir(r_path))[::-1]:
+            if f == 'checkpoint_best.pt':
+                r_file = r_path
+                found = True
+                break
+            if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
+                r_file = os.path.join(r_path, f)
+                found = True
+                break
+        if not found:
+            raise Exception("Model in path {} not found".format(r_path))
+
+        r_model = RobertaModel.from_pretrained(
+            r_file,
+            checkpoint_file = 'checkpoint_best.pt',
+            data_name_or_path = os.path.join(d_path, recon_rdset, 'unlabelled', 'bin')
+        )
+        r_encode = r_model
 
     else:
-        raise Exception("reconstruction model %s not found".format(cfg.gen.recon))
+        return None, None
 
-    if cfg.gen.recon in ['german', 'multilingual']:
-        softmax_mask = np.full(len(tokenizer.vocab), False)
-        softmax_mask[tokenizer.all_special_ids] = True
-        for k, v in tokenizer.vocab.items():
-            if '[unused' in k:
-                softmax_mask[v] = True
+    r_model.eval()
+    if torch.cuda.is_available():
+        r_model.cuda()
+    return r_model, r_encode
+
+@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+def gen_neighborhood(cfg: DictConfig):
+    #slurm_utils.symlink_hydra(cfg, os.getcwd())
+    shard = cfg.gen.shard
+    if cfg.gen.seed is not None:
+        torch.manual_seed(cfg.gen.seed)
+        np.random.seed(cfg.gen.seed)
 
     if cfg.data.task in ['nli']:
         base_path = '/scratch/ssd001/datasets/'
@@ -210,6 +229,26 @@ def gen_neighborhood(cfg: DictConfig):
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))
 
+    d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
+    print(d_path)
+    print(cfg.data.fdset)
+    print(cfg.gen.in_dset)
+    f_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.in_dset)
+
+    r_model, r_encode = load_recon_model(cfg.gen.recon, cfg.gen.recon_file.date, cfg.gen.recon_file.name, cfg.gen.recon_file.rdset, d_path)
+    if r_model is None or r_encode is None:
+        raise Exception("Model %s not found".format(cfg.gen.recon))
+
+    s_model, s_encode = load_recon_model(cfg.gen.comp, cfg.gen.comp_file.date, cfg.gen.comp_file.name, cfg.gen.comp_file.rdset, d_path)
+    print(s_model)
+
+    if cfg.gen.recon in ['german', 'multilingual']:
+        softmax_mask = np.full(len(tokenizer.vocab), False)
+        softmax_mask[tokenizer.all_special_ids] = True
+        for k, v in tokenizer.vocab.items():
+            if '[unused' in k:
+                softmax_mask[v] = True
+
     ext0 = 'input0'
     ext1 = 'input1'
     extl = 'label'
@@ -217,55 +256,60 @@ def gen_neighborhood(cfg: DictConfig):
         ext0 = cfg.data.src
         extl = cfg.data.tgt
 
-    d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
-    #print(d_path)
-    #print(cfg.data.fdset)
-    #print(cfg.gen.in_dset)
-    f_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.in_dset)
     #print(f_path)
     if cfg.gen.depth == 1:
         split = 'raw'
     else:
         split = 'gen'
 
-    if os.path.exists(os.path.join(f_path, '.'.join(['train', split, ext0]))):
-        s0_file = [[s.strip()] for s in open(os.path.join(f_path, '.'.join(['train', split, ext0])), 'r').readlines()]
+    data_split = cfg.gen.split
+    ext0_path = os.path.join(f_path, '.'.join([data_split, split, ext0]))
+    ext1_path = os.path.join(f_path, '.'.join([data_split, split, ext1]))
+    extl_path = os.path.join(f_path, '.'.join([data_split, 'raw', extl]))
+
+    if os.path.exists(ext0_path):
+        s0_file = [[s.strip()] for s in open(ext0_path, 'r').readlines()]
         shard_start = (int(len(s0_file)/cfg.gen.num_shards) + 1) * shard
         shard_end = (int(len(s0_file)/cfg.gen.num_shards) + 1) * (shard + 1)
         s0_file = s0_file[shard_start:shard_end]
         if len(s0_file) == 0:
             return
     else:
-        s0_file = [[s.strip()] for s in open(os.path.join(f_path, '.'.join(['train', split, ext0]) + '_' + str(shard)), 'r').readlines()]
+        s0_file = [[s.strip()] for s in open(ext0_path + '_' + str(shard), 'r').readlines()]
 
-    if os.path.exists(os.path.join(f_path, '.'.join(['train', split, extl]))):
-        l_file = [s.strip() for s in open(os.path.join(f_path, '.'.join(['train', split, extl])), 'r').readlines()]
+    if os.path.exists(extl_path):
+        l_file = [s.strip() for s in open(extl_path, 'r').readlines()]
         shard_start = (int(len(l_file)/cfg.gen.num_shards) + 1) * shard
         shard_end = (int(len(l_file)/cfg.gen.num_shards) + 1) * (shard + 1)
         l_file = l_file[shard_start:shard_end]
     else:
-        l_file = [s.strip() for s in open(os.path.join(f_path, '.'.join(['train', split, extl]) + '_' + str(shard)), 'r').readlines()]
+        l_file = [s.strip() for s in open(extl_path + '_' + str(shard), 'r').readlines()]
 
     if not os.path.exists(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset)):
         os.makedirs(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset))
 
-    s0_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.gen.' + ext0 + '_' + str(shard)), 'w')
-    l_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.imp.' + extl + '_' + str(shard)), 'w')
+    s0_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0 + '_' + str(shard))
+    if os.path.exists(s0_rec_filename) and not cfg.gen.overwrite:
+        raise Exception("File already exists")
+    s0_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0 + '_' + str(shard)), 'w')
+    l_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.imp.' + extl + '_' + str(shard)), 'w')
+    p_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.prob_' + str(shard)), 'w')
 
 
     # load a second sentence input if task is nli
     if cfg.data.task in ['nli']:
-        if os.path.exists(os.path.join(f_path, '.'.join(['train', split, ext1]))):
-            s1_file = [[s.strip()] for s in open(os.path.join(f_path, '.'.join(['train', split, ext1])), 'r').readlines()]
+        if os.path.exists(ext1_path):
+            s1_file = [[s.strip()] for s in open(ext1_path, 'r').readlines()]
             shard_start = (int(len(s1_file)/cfg.gen.num_shards) + 1) * shard
             shard_end = (int(len(s1_file)/cfg.gen.num_shards) + 1) * (shard + 1)
             s1_file = s1_file[shard_start:shard_end]
         else:
-            s1_file = [[s.strip()] for s in open(os.path.join(f_path, '.'.join(['train', split, ext1]) + '_' + str(shard)), 'r').readlines()]
-        s1_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.gen.' + ext1 + '_' + str(shard)), 'w')
+            s1_file = [[s.strip()] for s in open(ext1_path + '_' + str(shard), 'r').readlines()]
+        s1_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext1 + '_' + str(shard)), 'w')
 
     # sentences and labels to process
     sents = []
+    probs = []
     l = []
 
     # number sentences generated
@@ -295,7 +339,7 @@ def gen_neighborhood(cfg: DictConfig):
             else:
                 next_len = len(r_encode.encode(s0_file[next_sent][0]))
 
-            if next_len > 4 and next_len < 512:
+            if next_len > 4 and next_len < 505:
                 break
             else:
                 next_sent += 1
@@ -306,6 +350,7 @@ def gen_neighborhood(cfg: DictConfig):
             else:
                 sents.append(list(zip(s0_file[next_sent])))
             l.append(l_file[next_sent])
+            probs.append([])
 
             # set initial metropolis probabilities
             num_gen.append(0)
@@ -320,6 +365,7 @@ def gen_neighborhood(cfg: DictConfig):
 
                 # dump sents to file and add new one
                 gen_sents = sents.pop(i)
+                gen_probs = probs.pop(i)
                 num_gen.pop(i)
                 if cfg.gen.metropolis:
                     probs.pop(i)
@@ -334,10 +380,14 @@ def gen_neighborhood(cfg: DictConfig):
                     skip = -1
 
                 # write generated sentences
-                for sg in gen_sents[skip:]:
-                    s0_rec_file.write(repr(sg[0])[1:-1] + '\n')
+                for sg, prob in zip(gen_sents[skip:], gen_probs):
+                    s0_sent = repr(sg[0])[1:-1]
+                    if cfg.gen.print_prob:
+                        p_rec_file.write(str(prob) + '\n')
+                    s0_rec_file.write(s0_sent + '\n')
                     if cfg.data.task in ['nli']:
-                        s1_rec_file.write(repr(sg[1])[1:-1] + '\n')
+                        s1_sent = repr(sg[1])[1:-1]
+                        s1_rec_file.write(s1_sent + '\n')
                     l_rec_file.write(label + '\n')
 
                 # get next sentence below 512
@@ -352,7 +402,7 @@ def gen_neighborhood(cfg: DictConfig):
                     else:
                         next_len = len(r_encode.encode(s0_file[next_sent][0]))
 
-                    if next_len > 4 and next_len < 512:
+                    if next_len > 4 and next_len < 505:
                         break
                     else:
                         next_sent += 1
@@ -366,6 +416,7 @@ def gen_neighborhood(cfg: DictConfig):
                     if cfg.gen.metropolis:
                         probs.append(get_log_p(' '.join(sents[-1][0])))
                     l.append(l_file[next_sent])
+                    probs.append([])
                     num_gen.append(0)
                     num_tries.append(0)
                     if cfg.gen.metropolis:
@@ -417,9 +468,9 @@ def gen_neighborhood(cfg: DictConfig):
         toks = torch.stack(toks).cuda()
         masks = torch.stack(masks).cuda()
         if cfg.gen.recon in ['distil', 'german', 'multilingual']:
-            rec, rec_masks = hf_reconstruction_prob_tok(toks, masks, tokenizer, r_model, softmax_mask, reconstruct=True, topk=cfg.gen.topk)
+            rec, rec_masks, rec_prob = hf_reconstruction_prob_tok(toks, masks, tokenizer, r_model, softmax_mask, reconstruct=True, s_model=s_model, topk=cfg.gen.topk)
         else:
-            rec, rec_masks = r_model.reconstruction_prob_tok(toks, masks, reconstruct=True, topk=cfg.gen.topk)
+            rec, rec_masks, rec_prob = r_model.reconstruction_prob_tok(toks, masks, reconstruct=True, source_model=s_model, topk=cfg.gen.topk)
 
         # append to lists
         for i in range(len(rec)):
@@ -470,6 +521,7 @@ def gen_neighborhood(cfg: DictConfig):
 
             if accept:
                 sents[i].append(s_rec)
+                probs[i].append(rec_prob)
                 num_gen[i] += 1
                 num_tries[i] = 0
                 if cfg.gen.progressive or cfg.gen.metropolis:

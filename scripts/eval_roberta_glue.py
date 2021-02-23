@@ -1,5 +1,6 @@
 from fairseq.models.roberta import RobertaModel
 from fairseq.models.lstm_classifier import LSTMClassifier
+from fairseq.models.fconv_classifier import FConvClassifier
 import argparse
 import os
 import numpy as np
@@ -32,25 +33,29 @@ def evaluate(cfg: DictConfig):
 
     dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin, 'bin')
 
-    #if 'seed' in cfg.train:
-    #    ckpt_file = ':'.join([str(seed) + '.pt' for seed in cfg.train.seed])
-    #else:
-    #    ckpt_file = 'checkpoint_best.pt'
     ckpt_file = 'checkpoint_best.pt'
 
-    print(os.path.join(model_path, cfg.eval.model.date, slurm_utils.resolve_name(cfg.eval.model.name)))
-    if cfg.data.task == 'nli':
+    print(model_path)
+    if 'roberta' in cfg.train.arch:
         model = RobertaModel.from_pretrained(
             model_path,
             checkpoint_file=ckpt_file,
             data_name_or_path = dict_path
         )
-    elif cfg.data.task == 'sentiment':
+    elif cfg.train.arch == 'fconv_classifier':
+        model = FConvClassifier.from_pretrained(
+            model_path,
+            checkpoint_file=ckpt_file,
+            data_name_or_path = dict_path
+        )
+    elif cfg.train.arch == 'lstm_classifier':
         model = LSTMClassifier.from_pretrained(
             model_path,
             checkpoint_file=ckpt_file,
             data_name_or_path = dict_path
         )
+    else:
+        raise Exception("Arch %s not supported".format(cfg.train.arch))
 
     label_fn = lambda label: model.task.label_dictionary.string(
         [label + model.task.label_dictionary.nspecial]
@@ -132,8 +137,11 @@ def evaluate(cfg: DictConfig):
                     pred_prob = 1 / (1 + np.exp(-pred_prob))
                     pred_prob = pred_prob - np.pad(pred_prob[1:], (0,1), 'constant')
                 prediction = pred_prob.argmax()
+                pred_prob = np.exp(pred_prob)/sum(np.exp(pred_prob))
+                print(list(pred_prob))
                 prediction_label = label_fn(prediction)
                 nval += int(prediction_label == ex[-1])
+                print(str(nsamples) + ': ' + str(prediction_label == ex[-1]))
 
             nsamples += 1
         print(cfg.data.tdset + ' | Accuracy: ', float(nval)/float(nsamples))

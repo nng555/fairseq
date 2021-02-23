@@ -11,12 +11,23 @@ def separate_data(genre):
          open(os.path.join(d_path, genre, 'orig', 'valid.raw.input0'), 'w') as v0file, \
          open(os.path.join(d_path, genre, 'orig', 'valid.raw.label'), 'w') as vlfile, \
          open(os.path.join(d_path, genre, 'orig', 'test.raw.input0'), 'w') as te0file, \
-         open(os.path.join(d_path, genre, 'orig', 'test.raw.label'), 'w') as telfile:
-        vline = []
-        #tline = [[] for _ in range(5)]
-        tline = []
-        teline = []
+         open(os.path.join(d_path, genre, 'orig', 'test.raw.label'), 'w') as telfile, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'train.raw.input0'), 'w') as ut0file, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'train.raw.label'), 'w') as utlfile, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'valid.raw.input0'), 'w') as uv0file, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'valid.raw.label'), 'w') as uvlfile, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'test.raw.input0'), 'w') as ute0file, \
+         open(os.path.join(d_path, genre, 'unlabelled', 'test.raw.label'), 'w') as utelfile:
+        orig_in_files = [t0file, v0file, te0file]
+        orig_l_files = [tlfile, vlfile, telfile]
+        unl_in_files = [ut0file, uv0file, ute0file]
+        unl_l_files = [utlfile, uvlfile, utelfile]
+
+        print("Processing data for {}".format(genre))
+        lines = []
         for line in ifile:
+            if len(lines) > 2000000:
+                break
             row = json.loads(line)
             if 'reviewText' not in row:
                 continue
@@ -24,55 +35,33 @@ def separate_data(genre):
             if len(text.split()) > 300:
                 text = ' '.join(text.split()[:300])
             score = int(row['overall'])
-            if score == 1:
-                label = 'negative'
-            elif score in [2, 3, 4]:
-                label = 'neutral'
-            else:
-                label = 'positive'
+            lines.append([text, score])
 
-            '''
-            if score < 3:
-                label = 'negative'
-                lind = 0
-            elif score == 3:
-                label = 'neutral'
-                lind = 1
-            else:
-                label = 'positive'
-                lind = 2
-            '''
-            rand = np.random.rand()
-            if rand < 0.90:
-                #tline[lind].append([text, label])
-                tline.append([text, label])
-            elif rand < 0.95:
-                vline.append([text, label])
-            else:
-                teline.append([text, label])
+        print("Shuffling data for {}".format(genre))
+        random.shuffle(lines)
 
-        #for i in range(5):
-        random.shuffle(tline)
-        random.shuffle(vline)
-        random.shuffle(teline)
+        # 25k train, 2k valid, 2k test
+        train = lines[:25000]
+        valid = lines[25000:25000+2000]
+        test = lines[27000:27000+2000]
+        oarrays = [train, valid, test]
 
-        #tmin = min([len(l) for l in tline])
-        #vmin = min([len(l) for l in vline])
-        #temin = min([len(l) for l in teline])
-        temin = 2000
-        tmin = 25000
-        vmin = 2000
-        for line in tline[:tmin]:
-            t0file.write(line[0] + '\n')
-            tlfile.write(line[1] + '\n')
-        for line in vline[:vmin]:
-            v0file.write(line[0] + '\n')
-            vlfile.write(line[1] + '\n')
-        for line in teline[:temin]:
-            te0file.write(line[0] + '\n')
-            telfile.write(line[1] + '\n')
+        # 1.5m train, 10k valid, 10k test
+        utrain = lines[29000:1529000]
+        uvalid = lines[1529000:1539000]
+        utest = lines[1539000:1549000]
+        uarrays = [utrain, uvalid, utest]
+
+        print("Writing data for {}".format(genre))
+        for i in range(3):
+            for line in oarrays[i]:
+                orig_in_files[i].write(line[0] + '\n')
+                orig_l_files[i].write(str(line[1]) + '\n')
+            for line in uarrays[i]:
+                unl_in_files[i].write(line[0] + '\n')
+                unl_l_files[i].write(str(line[1]) + '\n')
 
 if __name__ == "__main__":
+    random.seed(1)
     for genre in ['kindle', 'pets', 'tools', 'books', 'clothing', 'home', 'movies', 'sports', 'tech', 'toys']:
-    #for genre in ['kindle', 'toys']:
         separate_data(genre)

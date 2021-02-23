@@ -1,0 +1,11 @@
+train:
+  warmup_updates: 1000
+  max_epoch: 15
+data:
+  bin: uda
+
+gen:
+  sampling_temp: 0.7
+  fname: ~
+
+

@@ -1,0 +1,17 @@
+train:
+  warmup_updates: eval:(int(3000*${data.fraction})+1)
+  max_epoch: 20
+
+data:
+  bin: sampling_frac_${data.fraction}_${gen.mask_prob}_${data.label}
+  fraction: ~
+  label: ~
+
+gen:
+  model:
+    date: 2020-05-08
+    bin: orig_frac_${data.fraction}
+    seed: 0
+
+
+

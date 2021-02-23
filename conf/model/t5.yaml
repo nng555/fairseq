@@ -1,0 +1,20 @@
+slurm:
+  job_name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    #- ${data.fdset}
+    #- ${data.bin}
+    #- ${data.tdset}
+    #- ${gen.shard}
+    #- ${train.seed}
+    - test
+
+t5_train:
+  model_dir: /h/nng/programs/t5/base
+  t5_tfds_data_dir: /h/nng/data/superglue
+  gin_file:
+    - dataset.gin
+    - /h/nng/programs/t5/base/operative_config.gin
+  gin_param: 
+    - "utils.run.mesh_shape = 'model:4,batch:2'"
+    - "utils.run.mesh_devices = ['gpu:0','gpu:1','gpu:2','gpu:3','gpu:4','gpu:5','gpu:6','gpu:7']"
+    - "MIXTURE_NAME = 'super_glue_v102_proportional'"

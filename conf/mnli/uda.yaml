@@ -1,0 +1,7 @@
+data:
+  bin: uda
+  num_sents: 200000
+
+gen:
+  sampling_temp: 0.7
+  fname: ~

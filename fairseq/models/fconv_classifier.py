@@ -119,7 +119,7 @@ class FConvClassifier(BaseFairseqModel):
             load_checkpoint_heads=True,
             **kwargs,
         )
-        return GeneratorHubInterface(x['args'], x['task'], [x['models'][0]])
+        return hub_utils.GeneratorHubInterface(x['args'], x['task'], [x['models'][0]])
 
 class ConvClassifier(FairseqEncoder):
 

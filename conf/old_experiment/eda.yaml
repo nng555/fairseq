@@ -1,0 +1,30 @@
+slurm:
+  name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - eda
+    - ${data.tdset}
+
+eval:
+  date: 2020-02-28
+  run_name:
+    - launch_train
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - eda
+
+data:
+  bin: eda
+  num_sents: 500000
+
+display:
+  dir:
+    date: 2020-02-28
+    name:
+      - eval_roberta_glue
+      - ???
+      - ???
+      - eda
+      - ???
+      - ???

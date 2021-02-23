@@ -1,0 +1,17 @@
+train:
+  warmup_updates: 100
+  max_epoch: 10
+
+data:
+  bin: orig20k
+  num_sents: 20000
+
+eval:
+  model:
+    date: 2020-04-05
+    bin: orig20k
+
+display:
+  dir: 
+    date: 2020-04-05
+

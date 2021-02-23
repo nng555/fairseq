@@ -142,11 +142,14 @@ class RobertaHubInterface(nn.Module):
             >>> roberta.encode('world').tolist()
             [0, 8331, 2]
         """
+        bpe_sentence = self.bpe.encode(sentence)
         bpe_sentence = '<s> ' + self.bpe.encode(sentence) + ' </s>'
         for s in addl_sentences:
             bpe_sentence += (' </s>' if not no_separator else '')
             bpe_sentence += ' ' + self.bpe.encode(s) + ' </s>'
         tokens = self.task.source_dictionary.encode_line(bpe_sentence, append_eos=False, add_if_not_exist=False)
+        if len(tokens) > self.max_positions[0]:
+            tokens = tokens[:self.max_positions[0] - 1] + tokens[-1]
         return tokens.long()
 
     def decode(self, tokens: torch.LongTensor, split_sent=False):
@@ -284,7 +287,8 @@ class RobertaHubInterface(nn.Module):
                 ))
         return topk_filled_outputs
 
-    def reconstruction_prob_tok(self, masked_tokens, target_tokens, reconstruct=False, topk=1):
+
+    def reconstruction_prob_tok(self, masked_tokens, target_tokens, reconstruct=False, source_model=None, topk=1):
 
         single = False
 
@@ -302,53 +306,104 @@ class RobertaHubInterface(nn.Module):
         # edge case of no masked tokens
         if len(masked_orig_index) == 0:
             if reconstruct:
-                return masked_tokens, masked_fill
+                return masked_tokens, masked_fill, torch.full((len(masked_tokens),), 0.0)
             else:
                 return 1.0
 
         masked_orig_enum = [list(range(len(masked_orig_index))), masked_orig_index]
 
-        with utils.eval(self.model):
-            features, extra = self.model(
+        with utils.model_eval(self.model):
+            features, _ = self.model(
                 masked_tokens.long().to(device=self.device),
                 features_only=False,
                 return_all_hiddens=False,
             )
+            probs = features[masked_index]
 
-        logits = features[masked_index]
-        probs = logits.softmax(dim=-1)
-        for prob in probs:
-            prob[self.task.source_dictionary.bos()] = 0 # 0
-            prob[self.task.source_dictionary.eos()] = 0 # 2
-            prob[self.task.source_dictionary.pad()] = 0 # 1
-            prob[-4:] = 0
+        if source_model:
+            # normalize before subtracting
+            probs = logits.softmax(dim=-1)
+            orig_probs = probs.detach().clone()
+            with utils.model_eval(source_model):
+                s_features, _ = source_model.model(
+                    masked_tokens.long().to(device=self.device),
+                    features_only=False,
+                    return_all_hiddens=False,
+                )
+                s_logits = s_features[masked_index]
+                s_probs = s_logits.softmax(dim=-1)
+                probs = probs - s_probs
+                probs -= torch.min(probs, dim=-1).values.unsqueeze(-1)
+
+        if self.comp_model:
+            negate = 0
+        else:
+            negate = float('-inf')
+
+        for i in range(len(probs)):
+            probs[i][self.task.source_dictionary.bos()] = negate # 0
+            probs[i][self.task.source_dictionary.eos()] = negate # 2
+            probs[i][self.task.source_dictionary.pad()] = negate # 1
+            probs[i][-4:] = negate
 
         if (reconstruct):
 
-            # sample from topk
-            if topk != -1:
-                values, indices = probs.topk(k=topk, dim=-1)
-                kprobs = values.softmax(dim=-1)
-                if (len(masked_index) > 1):
-                    samples = torch.cat([idx[torch.multinomial(kprob, 1)] for kprob, idx in zip(kprobs, indices)])
-                else:
-                    samples = indices[torch.multinomial(kprobs, 1)]
+            recon_prob = 0
 
-            # unrestricted sampling
-            else:
-                if (len(masked_index) > 1):
-                    samples = torch.cat([torch.multinomial(prob, 1) for prob in probs])
+            # sample from topk if not unrestricted
+            if topk != -1:
+                probs, indices = probs.topk(k=topk, dim=-1)
+            # normalize after topk if necessary
+            if not source_model:
+                probs = probs.softmax(dim=-1)
+
+            if (len(masked_index) > 1):
+                tok_samples = [torch.multinomial(prob, 1) for prob in probs]
+                if topk != -1:
+                    samples = torch.cat([idx[tok] for tok, idx in zip(tok_samples, indices)])
                 else:
-                    samples = torch.multinomial(probs, 1)
+                    samples = torch.cat(tok_samples)
+
+                (masked_i, masked_j) = masked_index
+                recon_prob = []
+                idx = 0
+                curr_prob = 0
+                curr_i = 0
+                while idx < len(masked_i):
+                    if masked_i[idx] != curr_i:
+                        recon_prob.append(curr_prob)
+                        curr_prob = 0
+                        curr_i += 1
+                        continue
+                    if source_model:
+                        curr_prob += torch.log(orig_probs[idx][tok_samples[idx]])
+                    else:
+                        curr_prob += torch.log(probs[idx][tok_samples[idx]])
+                    idx += 1
+                recon_prob.append(curr_prob)
+                while len(recon_prob) < len(masked_tokens):
+                    recon_prob.append(-float('inf'))
+                recon_prob = torch.tensor(recon_prob)
+
+            else:
+                tok_sample = torch.multinomial(probs, 1)
+                if topk != -1:
+                    samples = indices[tok_sample]
+                else:
+                    samples = tok_sample
+                if source_model:
+                    recon_prob = torch.tensor([orig_probs[tok_sample].item()])
+                else:
+                    recon_prob = torch.tensor([probs[tok_sample].item()])
 
             # set samples
             masked_tokens[masked_index] = samples
             masked_fill[masked_index] = samples
 
             if single:
-                return masked_tokens[0], masked_fill[0]
+                return masked_tokens[0], masked_fill[0], recon_prob[0]
             else:
-                return masked_tokens, masked_fill
+                return masked_tokens, masked_fill, recon_prob
 
         return torch.sum(torch.log(probs[masked_orig_enum])).item()
 

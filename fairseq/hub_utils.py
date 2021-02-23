@@ -203,9 +203,10 @@ class GeneratorHubInterface(nn.Module):
             raise ValueError('tokens exceeds maximum length: {} > {}'.format(
                 tokens.size(-1), self.models[0].max_positions()
             ))
+        lengths = torch.LongTensor([t.numel() for t in tokens])
         features, extra = self.models[0](
             tokens.to(device=self.device),
-            torch.tensor([len(t) for t in tokens], device=self.device),
+            lengths.to(device=self.device),
             features_only=True,
             return_all_hiddens=return_all_hiddens,
         )

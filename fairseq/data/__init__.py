@@ -34,9 +34,11 @@ from .numel_dataset import NumelDataset
 from .num_samples_dataset import NumSamplesDataset
 from .offset_tokens_dataset import OffsetTokensDataset
 from .pad_dataset import LeftPadDataset, PadDataset, RightPadDataset
+from .pate_teacher_dataset import PateTeacherDataset
 from .prepend_dataset import PrependDataset
 from .prepend_token_dataset import PrependTokenDataset
 from .raw_label_dataset import RawLabelDataset
+from .reconstruct_tokens_dataset import ReconstructTokensDataset
 from .replace_dataset import ReplaceDataset
 from .resampling_dataset import ResamplingDataset
 from .roll_dataset import RollDataset

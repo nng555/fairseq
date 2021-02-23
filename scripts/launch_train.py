@@ -20,6 +20,7 @@ def launch(cfg: DictConfig):
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))
 
+    d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
     bin_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin, 'bin')
     j_dir = slurm_utils.get_j_dir(cfg)
 
@@ -35,11 +36,29 @@ def launch(cfg: DictConfig):
                 found = True
                 break
 
-        if cfg.data.task in ['nli'] and not found:
+        if not found and 'roberta' in cfg.train.arch:
             cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
             cfg.train.reset_optimizer = True
             cfg.train.reset_dataloader = True
             cfg.train.reset_meters = True
+
+    if cfg.gen.recon == 'local' and 'self_train' not in cfg.data.bin:
+        r_path = os.path.join('/h/nng/slurm', cfg.gen.recon_file.date, slurm_utils.resolve_name(cfg.gen.recon_file.name))
+        if os.path.exists(os.path.join(r_path, 'checkpoint_best.pt')):
+            r_file = r_path
+        else:
+            found = False
+            for f in sorted(os.listdir(r_path))[::-1]:
+                if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
+                    r_file = os.path.join(r_path, f)
+                    found = True
+                    break
+            if not found:
+                raise Exception("Model in path {} not found".format(r_path))
+
+        cfg.train.recon_model_path = r_file
+        cfg.train.recon_model_file = 'checkpoint_best.pt'
+        cfg.train.recon_model_data = os.path.join(d_path, cfg.gen.recon_file.rdset, 'unlabelled', 'bin')
 
     flags = [['--' + k.replace('_', '-'), slurm_utils.eval_val(str(v))] for k, v in cfg.train.items() if v != None]
     flags = [val for sublist in flags if sublist[1] != "False" for val in sublist if val != "True"]

@@ -1,0 +1,23 @@
+data:
+  name: anli
+  task: nli
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset:
+    - R1
+    - R2
+    - R3
+  tdset:
+    - R1
+    - R2
+    - R3
+  noise:
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: anli
+  data: anli

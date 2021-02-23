@@ -1,0 +1,23 @@
+train:
+  warmup_updates: eval:(int(50*${data.fraction})+1)
+  max_epoch: 20
+
+data:
+  bin: sampling_${data.fraction}_soft
+  fraction: ~
+
+eval:
+  model:
+    date: ~
+
+display:
+  dir: 
+    date: ~
+
+gen:
+  model:
+    date: 2020-04-23
+    bin: orig_${data.fraction}
+    seed: 0
+
+

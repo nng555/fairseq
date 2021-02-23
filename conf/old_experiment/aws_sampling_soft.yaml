@@ -1,0 +1,72 @@
+slurm:
+  job_name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${data.fdset}
+    - sampling_soft
+    - ${data.tdset}
+    - ${gen.shard}
+    - ${train.seed}
+
+train:
+  arch: lstm_classifier
+  num_classes: 2
+  lr: 1e-03
+  lr_scheduler: inverse_sqrt
+  warmup_updates: 3500
+  max_sentences: 8
+  update_freq: 4
+  max_positions: ~
+  max_epoch: ~ 
+  skip_invalid_size_inputs_valid_test: true
+  encoder_layers: 3
+  soft_labels: true
+
+gen:
+  depth: 1
+  shard: ~
+  num_shards: 8
+  num_samples: 5
+  label_samples: 1
+  mask_prob: 0.15
+  leave_unmasked_prob: 0.1
+  random_token_prob: 0.1
+  topk: -1
+  dset: sampling.soft
+  model:
+    date: 2020-04-01
+    name: 
+      - launch_train
+      - ${data.fdset}
+      - ${gen.model.bin}
+      - ${gen.model.seed}
+    bin: orig
+    seed: 2
+  batch: 8
+
+data:
+  bin: sampling.soft
+  num_sents: 900000
+
+eval:
+  model:
+    date: 2020-04-01
+    name:
+      - launch_train
+      - ${slurm.train.noise}
+      - ${data.fdset}
+      - sampling_soft
+      - ${train.seed}
+    bin: sampling.soft
+    data: aws
+  data: aws
+
+display:
+  dir: 
+    date: 2020-04-01
+    name:
+      - eval_roberta_glue
+      - ???
+      - ???
+      - sampling_soft
+      - ???
+      - ???

@@ -1,0 +1,7 @@
+train:
+  warmup_updates: eval:(int(200*(2**(${data.fraction}-14))+1))
+  max_epoch: 40
+
+data:
+  bin: orig_frac_${data.fraction}
+  fraction: ~

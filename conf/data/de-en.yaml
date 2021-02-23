@@ -1,0 +1,30 @@
+data:
+  name: de-en
+  src: de
+  tgt: en
+  task: translation
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset:
+    - iwslt
+    - medical
+  tdset:
+    - iwslt
+    - medical
+    - it
+    - koran
+    - law
+    - subtitles
+  noise: 
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: de-en
+  data: de-en
+
+gen:
+  recon: multilingual

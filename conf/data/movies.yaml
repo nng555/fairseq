@@ -1,0 +1,24 @@
+data:
+  name: movies
+  task: sentiment
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset: 
+    - sst2
+    - imdb
+  tdset:
+    - sst2
+    - imdb
+  noise:
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: movies
+  data: movies
+
+train:
+  num_classes: 2

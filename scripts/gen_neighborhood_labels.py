@@ -1,5 +1,6 @@
 from fairseq.models.roberta import RobertaModel
 from fairseq.models.lstm_classifier import LSTMClassifier
+from fairseq.models.fconv_classifier import FConvClassifier
 import argparse
 import os
 import sys
@@ -25,14 +26,15 @@ def gen_neighborhood_labels(cfg: DictConfig):
                 break
 
     if cfg.data.task in ['nli']:
-        base_path = '/scratch/ssd001/datasets/'
+        base_path = '/scratch/ssd002/datasets/'
     elif cfg.data.task in ['sentiment']:
         base_path = '/h/nng/data'
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))
 
     d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
-    bin_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.model.bin, 'bin')
+    bin_path = os.path.join(d_path, cfg.gen.model.fdset, cfg.gen.model.bin, 'bin')
+    print(bin_path)
 
     if cfg.data.task in ['nli']:
         model = RobertaModel.from_pretrained(
@@ -41,7 +43,7 @@ def gen_neighborhood_labels(cfg: DictConfig):
             data_name_or_path = bin_path
         )
     elif cfg.data.task in ['sentiment']:
-        model = LSTMClassifier.from_pretrained(
+        model = RobertaModel.from_pretrained(
             model_path,
             checkpoint_file = 'checkpoint_best.pt',
             data_name_or_path = bin_path
@@ -49,8 +51,14 @@ def gen_neighborhood_labels(cfg: DictConfig):
     model.eval()
     model.cuda()
 
-    i0path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.gen.input0')
-    i1path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.gen.input1')
+    data_split = cfg.gen.split
+    if data_split == 'unlabelled':
+        i0path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.raw.input0')
+        i1path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.raw.input1')
+    else:
+        i0path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.input0')
+        i1path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.input1')
+    print(i0path)
 
     if os.path.exists(i0path + '_' + str(shard)):
         s0_file = open(i0path + '_' + str(shard), 'r').readlines()
@@ -68,26 +76,35 @@ def gen_neighborhood_labels(cfg: DictConfig):
             s1_file = open(i1path, 'r').readlines()
             sents = [(s0.strip(), s1.strip()) for s0, s1 in zip(s0_file[shard_start:shard_end], s1_file[shard_start:shard_end])]
         else:
-            sents = [(s0.strip(),) for s0 in s0_file]
+            sents = [(s0.strip(),) for s0 in s0_file[shard_start:shard_end]]
 
     label_fn = lambda label: model.task.label_dictionary.string(
         [label + model.task.label_dictionary.nspecial]
     )
 
-    with open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.soft.label_' + str(shard)), 'w') as softf, \
-         open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.raw.label_' + str(shard)), 'w') as rawf:
+    print(len(sents))
+    if data_split == 'unlabelled':
+        extra = []
+        if cfg.data.teacher_idx is not None:
+            extra.append(str(cfg.data.teacher_idx))
+        if cfg.gen.num_shards != 1:
+            extra.append(str(shard))
+        softf_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.soft.label_' + '_'.join(extra))
+        rawf_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, 'train.gen.label_' + '_'.join(extra))
+    else:
+        softf_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.soft.label_' + str(shard))
+        rawf_path = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.raw.label_' + str(shard))
+
+    if os.path.exists(rawf_path) and os.path.exists(softf_path) and not cfg.gen.overwrite:
+        raise Exception("File already exists")
+
+    with open(softf_path, 'w') as softf, \
+         open(rawf_path, 'w') as rawf:
         batch_num = int(len(sents)/cfg.gen.batch) + 1
         for b in range(batch_num):
             if b * cfg.gen.batch >= len(sents):
                 break
-            if cfg.gen.label_samples == 1:
-                toks = [model.encode(*s) for s in sents[b*cfg.gen.batch:(b+1)*cfg.gen.batch]]
-            else:
-                toks = [model.masked_encode(*s,
-                                             mask_prob=cfg.gen.mask_prob,
-                                             random_token_prob=cfg.gen.random_token_prob,
-                                             leave_unmasked_prob=cfg.gen.leave_unmasked_prob)[0]
-                            for s in sents[b*cfg.gen.batch:(b+1)*cfg.gen.batch]]
+            toks = [model.encode(*s) for s in sents[b*cfg.gen.batch:(b+1)*cfg.gen.batch]]
             max_len = max([len(tok) for tok in toks])
             toks = [F.pad(tok, (0, max_len - len(tok)), 'constant', model.task.source_dictionary.pad()) for tok in toks]
             toks = torch.stack(toks)

@@ -1,0 +1,28 @@
+train:
+  warmup_updates: 500
+  max_epoch: 20
+  soft_labels: true
+
+gen:
+  in_dset: orig20k
+  model:
+    date: 2020-04-04
+    bin: orig20k
+    seed: 2
+  batch: 8
+  progressive: true
+
+data:
+  bin: 20k_sampling_prog_soft
+  num_sents: 120000
+
+eval:
+  model:
+    date: 2020-04-06
+
+display:
+  dir: 
+    date: 2020-04-07
+
+
+

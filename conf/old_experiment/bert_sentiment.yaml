@@ -1,0 +1,16 @@
+slurm:
+  name:
+    - eval:sys.argv[0][:-3].split('/')[-1]
+    - ${slurm.train.noise}
+    - ${data.fdset}
+    - orig
+    - ${data.tdset}
+    - ${train.seed}
+
+train:
+  num_classes: 2
+  skip_invalid_size_inputs_valid_test: true
+
+data:
+  bin: orig
+  num_sents: 200000

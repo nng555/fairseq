@@ -1,0 +1,25 @@
+data:
+  name: yelp
+  task: sentiment
+  fdset: ???
+  tdset: ???
+
+display:
+  fdset: 
+    - american
+    - chinese
+    - italian
+    - japanese
+  tdset:
+    - american
+    - chinese
+    - italian
+    - japanese
+  noise: 
+    - ~
+
+eval:
+  model:
+    date: ~
+    data: yelp
+  data: yelp
