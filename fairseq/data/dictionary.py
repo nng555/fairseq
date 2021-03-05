@@ -15,7 +15,7 @@ from fairseq.file_io import PathManager
 from fairseq.tokenizer import tokenize_line
 
 
-class Dictionary(object):
+class Dictionary:
     """A mapping from symbols to consecutive integers"""
 
     def __init__(
@@ -27,7 +27,7 @@ class Dictionary(object):
         unk="<unk>",
         extra_special_symbols=None,
     ):
-        self.unk_word, self.pad_word, self.eos_word = unk, pad, eos
+        self.bos_word, self.unk_word, self.pad_word, self.eos_word = bos, unk, pad, eos
         self.symbols = []
         self.count = []
         self.indices = {}
@@ -69,6 +69,7 @@ class Dictionary(object):
         escape_unk=False,
         extra_symbols_to_ignore=None,
         unk_string=None,
+        include_eos=False,
     ):
         """Helper for converting a tensor of token indices to a string.
 
@@ -76,7 +77,7 @@ class Dictionary(object):
         """
         if torch.is_tensor(tensor) and tensor.dim() == 2:
             return "\n".join(
-                self.string(t, bpe_symbol, escape_unk, extra_symbols_to_ignore)
+                self.string(t, bpe_symbol, escape_unk, extra_symbols_to_ignore, include_eos=include_eos)
                 for t in tensor
             )
 
@@ -221,7 +222,7 @@ class Dictionary(object):
         """
         if isinstance(f, str):
             try:
-                with PathManager.open(f, "r", encoding="utf-8") as fd:
+                with open(PathManager.get_local_path(f), "r", encoding="utf-8") as fd:
                     self.add_from_file(fd)
             except FileNotFoundError as fnfe:
                 raise fnfe
@@ -251,8 +252,7 @@ class Dictionary(object):
                         "Duplicate words can overwrite earlier ones by adding the "
                         "#fairseq:overwrite flag at the end of the corresponding row "
                         "in the dictionary file. If using the Camembert model, please "
-                        "download an updated copy of the model file."
-                        .format(word)
+                        "download an updated copy of the model file.".format(word)
                     )
                 self.add_symbol(word, n=count, overwrite=overwrite)
             except ValueError:
@@ -298,7 +298,7 @@ class Dictionary(object):
         consumer=None,
         append_eos=True,
         reverse_order=False,
-    ):
+    ) -> torch.IntTensor:
         words = line_tokenizer(line)
         if reverse_order:
             words = list(reversed(words))
@@ -335,7 +335,13 @@ class Dictionary(object):
                 for word in tokenize(line):
                     counter.update([word])
                 counter.update([eos_word])
-                if f.tell() > end:
+                # f.tell() returns only an opaque number which can
+                # return to the position in the file via f.seek()
+                # and does not necessarily represent a byte position
+                # in the file. However, f.tell() is faithful to the
+                # byte position _most of the time_. Thus we can just
+                # check against the file size to prevent early exit.
+                if f.tell() > end and f.tell() < size:
                     break
                 line = f.readline()
         return counter

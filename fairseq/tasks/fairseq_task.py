@@ -6,27 +6,67 @@
 import logging
 import os
 import warnings
-
+from argparse import Namespace
+from typing import Any, Callable, Dict, List
 
 import torch
-
 from fairseq import metrics, search, tokenizer, utils
-from fairseq.data import data_utils, FairseqDataset, iterators, Dictionary
-from argparse import Namespace
+from fairseq.data import Dictionary, FairseqDataset, data_utils, encoders, iterators
+from fairseq.dataclass import FairseqDataclass
+from fairseq.dataclass.utils import gen_parser_from_dataclass
+from omegaconf import DictConfig
+
 
 logger = logging.getLogger(__name__)
+
+
+class StatefulContainer(object):
+
+    _state: Dict[str, Any] = dict()
+    _factories: Dict[str, Callable[[], Any]] = dict()
+
+    def add_factory(self, name, factory: Callable[[], Any]):
+        self._factories[name] = factory
+
+    def merge_state_dict(self, state_dict: Dict[str, Any]):
+        self._state.update(state_dict)
+
+    @property
+    def state_dict(self) -> Dict[str, Any]:
+        return self._state
+
+    def __getattr__(self, name):
+        if name not in self._state and name in self._factories:
+            self._state[name] = self._factories[name]()
+
+        if name in self._state:
+            return self._state[name]
+
+        raise AttributeError(f"Task state has no factory for attribute {name}")
 
 
 class FairseqTask(object):
     """
     Tasks store dictionaries and provide helpers for loading/iterating over
     Datasets, initializing the Model/Criterion and calculating the loss.
+
+    Tasks have limited statefulness. In particular, state that needs to be
+    saved to/loaded from checkpoints needs to be stored in the `self.state`
+    :class:`StatefulContainer` object. For example::
+
+        self.state.add_factory("dictionary", self.load_dictionary)
+        print(self.state.dictionary)  # calls self.load_dictionary()
+
+    This is necessary so that when loading checkpoints, we can properly
+    recreate the task state after initializing the task instance.
     """
 
-    @staticmethod
-    def add_args(parser):
+    @classmethod
+    def add_args(cls, parser):
         """Add task-specific arguments to the parser."""
-        pass
+        dc = getattr(cls, "__dataclass", None)
+        if dc is not None:
+            gen_parser_from_dataclass(parser, dc())
 
     @staticmethod
     def logging_outputs_can_be_summed(criterion) -> bool:
@@ -37,10 +77,16 @@ class FairseqTask(object):
         """
         return criterion.logging_outputs_can_be_summed()
 
-    def __init__(self, args):
-        self.args = args
-        self.datasets = {}
-        self.dataset_to_epoch_iter = {}
+    cfg: FairseqDataclass
+    datasets: Dict[str, FairseqDataset]
+    dataset_to_epoch_iter: Dict[FairseqDataset, Any]
+    state: StatefulContainer = None
+
+    def __init__(self, cfg: FairseqDataclass, **kwargs):
+        self.cfg = cfg
+        self.datasets = dict()
+        self.dataset_to_epoch_iter = dict()
+        self.state = StatefulContainer()
 
     @classmethod
     def load_dictionary(cls, filename):
@@ -76,22 +122,31 @@ class FairseqTask(object):
         return d
 
     @classmethod
-    def setup_task(cls, args, **kwargs):
+    def setup_task(cls, cfg: DictConfig, **kwargs):
         """Setup the task (e.g., load dictionaries).
 
         Args:
-            args (argparse.Namespace): parsed command-line arguments
+            cfg (omegaconf.DictConfig): parsed command-line arguments
         """
-        return cls(args, **kwargs)
+        return cls(cfg, **kwargs)
 
     def has_sharded_data(self, split):
-        return (os.pathsep in getattr(self.args, 'data', ''))
+        return os.pathsep in getattr(self.cfg, "data", "")
 
-    def load_dataset(self, split, combine=False, **kwargs):
+    def load_dataset(
+        self,
+        split: str,
+        combine: bool = False,
+        task_cfg: FairseqDataclass = None,
+        **kwargs
+    ):
         """Load a given dataset split.
 
         Args:
             split (str): name of the split (e.g., train, valid, test)
+            combine (bool): combines a split segmented into pieces into one dataset
+            task_cfg (FairseqDataclass): optional task configuration stored in the checkpoint that can be used
+                                         to load datasets
         """
         raise NotImplementedError
 
@@ -114,11 +169,7 @@ class FairseqTask(object):
         return self.datasets[split]
 
     def filter_indices_by_size(
-        self,
-        indices,
-        dataset,
-        max_positions=None,
-        ignore_invalid_inputs=False,
+        self, indices, dataset, max_positions=None, ignore_invalid_inputs=False
     ):
         """
         Filter examples that are too large
@@ -136,14 +187,18 @@ class FairseqTask(object):
         indices, ignored = dataset.filter_indices_by_size(indices, max_positions)
         if len(ignored) > 0:
             if not ignore_invalid_inputs:
-                raise Exception((
-                    'Size of sample #{} is invalid (={}) since max_positions={}, '
-                    'skip this example with --skip-invalid-size-inputs-valid-test'
-                ).format(ignored[0], dataset.size(ignored[0]), max_positions))
-            logger.warning((
-                '{} samples have invalid sizes and will be skipped, '
-                'max_positions={}, first few sample ids={}'
-            ).format(len(ignored), max_positions, ignored[:10]))
+                raise Exception(
+                    (
+                        "Size of sample #{} is invalid (={}) since max_positions={}, "
+                        "skip this example with --skip-invalid-size-inputs-valid-test"
+                    ).format(ignored[0], dataset.size(ignored[0]), max_positions)
+                )
+            logger.warning(
+                (
+                    "{:,} samples have invalid sizes and will be skipped, "
+                    "max_positions={}, first few sample ids={}"
+                ).format(len(ignored), max_positions, ignored[:10])
+            )
         return indices
 
     def can_reuse_epoch_itr(self, dataset):
@@ -151,7 +206,7 @@ class FairseqTask(object):
         # hasn't disabled it. We default to ``False`` here, although in practice
         # this will be ``True`` for most datasets that inherit from
         # ``FairseqDataset`` due to the base implementation there.
-        return getattr(dataset, 'can_reuse_epoch_itr_across_epochs', False)
+        return getattr(dataset, "can_reuse_epoch_itr_across_epochs", False)
 
     def get_batch_iterator(
         self,
@@ -204,12 +259,11 @@ class FairseqTask(object):
             ~fairseq.iterators.EpochBatchIterator: a batched iterator over the
                 given dataset split
         """
-        can_reuse_epoch_itr = (
-            not disable_iterator_cache
-            and self.can_reuse_epoch_itr(dataset)
+        can_reuse_epoch_itr = not disable_iterator_cache and self.can_reuse_epoch_itr(
+            dataset
         )
         if can_reuse_epoch_itr and dataset in self.dataset_to_epoch_iter:
-            logger.debug('reusing EpochBatchIterator for epoch {}'.format(epoch))
+            logger.debug("reusing EpochBatchIterator for epoch {}".format(epoch))
             return self.dataset_to_epoch_iter[dataset]
 
         assert isinstance(dataset, FairseqDataset)
@@ -253,42 +307,40 @@ class FairseqTask(object):
 
         return epoch_iter
 
-    def build_model(self, args):
+    def build_model(self, cfg: FairseqDataclass):
         """
         Build the :class:`~fairseq.models.BaseFairseqModel` instance for this
         task.
 
         Args:
-            args (argparse.Namespace): parsed command-line arguments
+            cfg (FairseqDataclass): configuration object
 
         Returns:
             a :class:`~fairseq.models.BaseFairseqModel` instance
         """
         from fairseq import models, quantization_utils
-        model = models.build_model(args, self)
-        if getattr(args, 'tpu', False):
-            model.prepare_for_tpu_()
-        model = quantization_utils.quantize_model_scalar(model, args)
+
+        model = models.build_model(cfg, self)
+        model = quantization_utils.quantize_model_scalar(model, cfg)
         return model
 
-    def build_criterion(self, args):
+    def build_criterion(self, cfg: DictConfig):
         """
         Build the :class:`~fairseq.criterions.FairseqCriterion` instance for
         this task.
 
         Args:
-            args (argparse.Namespace): parsed command-line arguments
+            cfg (omegaconf.DictConfig): configration object
 
         Returns:
             a :class:`~fairseq.criterions.FairseqCriterion` instance
         """
         from fairseq import criterions
 
-        return criterions.build_criterion(args, self)
+        return criterions.build_criterion(cfg, self)
 
     def build_generator(
-        self, models, args,
-        seq_gen_cls=None, extra_gen_cls_kwargs=None
+        self, models, args, seq_gen_cls=None, extra_gen_cls_kwargs=None
     ):
         if getattr(args, "score_reference", False):
             from fairseq.sequence_scorer import SequenceScorer
@@ -302,6 +354,10 @@ class FairseqTask(object):
             SequenceGenerator,
             SequenceGeneratorWithAlignment,
         )
+        try:
+            from fairseq.fb_sequence_generator import FBSequenceGenerator
+        except ModuleNotFoundError:
+            pass
 
         # Choose search strategy. Defaults to Beam Search.
         sampling = getattr(args, "sampling", False)
@@ -312,6 +368,7 @@ class FairseqTask(object):
         match_source_len = getattr(args, "match_source_len", False)
         diversity_rate = getattr(args, "diversity_rate", -1)
         constrained = getattr(args, "constraints", False)
+        prefix_allowed_tokens_fn = getattr(args, "prefix_allowed_tokens_fn", None)
         if (
             sum(
                 int(cond)
@@ -352,16 +409,26 @@ class FairseqTask(object):
                 self.target_dictionary, diversity_rate
             )
         elif constrained:
-            search_strategy = search.LexicallyConstrainedBeamSearch(self.target_dictionary, args.constraints)
+            search_strategy = search.LexicallyConstrainedBeamSearch(
+                self.target_dictionary, args.constraints
+            )
+        elif prefix_allowed_tokens_fn:
+            search_strategy = search.PrefixConstrainedBeamSearch(
+                self.target_dictionary, prefix_allowed_tokens_fn
+            )
         else:
             search_strategy = search.BeamSearch(self.target_dictionary)
 
+        extra_gen_cls_kwargs = extra_gen_cls_kwargs or {}
         if seq_gen_cls is None:
             if getattr(args, "print_alignment", False):
                 seq_gen_cls = SequenceGeneratorWithAlignment
+                extra_gen_cls_kwargs["print_alignment"] = args.print_alignment
+            elif getattr(args, "fb_seq_gen", False):
+                seq_gen_cls = FBSequenceGenerator
             else:
                 seq_gen_cls = SequenceGenerator
-        extra_gen_cls_kwargs = extra_gen_cls_kwargs or {}
+
         return seq_gen_cls(
             models,
             self.target_dictionary,
@@ -418,12 +485,28 @@ class FairseqTask(object):
             loss, sample_size, logging_output = criterion(model, sample)
         return loss, sample_size, logging_output
 
-    def inference_step(self, generator, models, sample, prefix_tokens=None, constraints=None):
+    def optimizer_step(self, optimizer, model, update_num):
+        optimizer.step()
+
+    def build_dataset_for_inference(
+        self, src_tokens: List[torch.Tensor], src_lengths: List[int], **kwargs
+    ) -> torch.utils.data.Dataset:
+        raise NotImplementedError
+
+    def inference_step(
+        self, generator, models, sample, prefix_tokens=None, constraints=None
+    ):
         with torch.no_grad():
-            return generator.generate(models, sample, prefix_tokens=prefix_tokens, constraints=constraints)
+            return generator.generate(
+                models, sample, prefix_tokens=prefix_tokens, constraints=constraints
+            )
 
     def begin_epoch(self, epoch, model):
         """Hook function called before the start of each epoch."""
+        pass
+
+    def begin_valid_epoch(self, epoch, model):
+        """Hook function called before the start of each validation epoch."""
         pass
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
@@ -472,6 +555,15 @@ class FairseqTask(object):
 
         criterion.__class__.reduce_metrics(logging_outputs)
 
+    def state_dict(self):
+        if self.state is not None:
+            return self.state.state_dict
+        return {}
+
+    def load_state_dict(self, state_dict: Dict[str, Any]):
+        if self.state is not None:
+            self.state.merge_state_dict(state_dict)
+
     def max_positions(self):
         """Return the max input length allowed by the task."""
         return None
@@ -488,9 +580,26 @@ class FairseqTask(object):
         for this task)."""
         raise NotImplementedError
 
+    def build_tokenizer(self, args):
+        """Build the pre-tokenizer for this task."""
+        return encoders.build_tokenizer(args)
+
+    def build_bpe(self, args):
+        """Build the tokenizer for this task."""
+        return encoders.build_bpe(args)
+
+    def get_interactive_tokens_and_lengths(self, lines, encode_fn):
+        tokens = [
+            self.source_dictionary.encode_line(
+                encode_fn(src_str), add_if_not_exist=False
+            ).long()
+            for src_str in lines
+        ]
+        lengths = [t.numel() for t in tokens]
+        return tokens, lengths
+
 
 class LegacyFairseqTask(FairseqTask):
-
     def __init__(self, args: Namespace):
         self.args = args
         self.datasets = {}
@@ -506,7 +615,7 @@ class LegacyFairseqTask(FairseqTask):
         return cls(args, **kwargs)
 
     def has_sharded_data(self, split):
-        return (os.pathsep in getattr(self.args, 'data', ''))
+        return os.pathsep in getattr(self.args, "data", "")
 
     def build_model(self, args: Namespace):
         """
@@ -520,9 +629,8 @@ class LegacyFairseqTask(FairseqTask):
             a :class:`~fairseq.models.BaseFairseqModel` instance
         """
         from fairseq import models, quantization_utils
+
         model = models.build_model(args, self)
-        if getattr(args, 'tpu', False):
-            model.prepare_for_tpu_()
         model = quantization_utils.quantize_model_scalar(model, args)
         return model
 

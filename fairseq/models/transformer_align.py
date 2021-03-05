@@ -5,9 +5,9 @@
 
 from fairseq.models import register_model, register_model_architecture
 from fairseq.models.transformer import (
+    TransformerModel,
     base_architecture,
     transformer_wmt_en_de_big,
-    TransformerModel,
 )
 
 
@@ -32,7 +32,7 @@ class TransformerAlignModel(TransformerModel):
                             help='Number of cross attention heads per layer to supervised with alignments')
         parser.add_argument('--alignment-layer', type=int, metavar='D',
                             help='Layer number which has to be supervised. 0 corresponding to the bottommost layer.')
-        parser.add_argument('--full-context-alignment', type=bool, metavar='D',
+        parser.add_argument('--full-context-alignment', action='store_true',
                             help='Whether or not alignment is supervised conditioned on the full target context.')
         # fmt: on
 

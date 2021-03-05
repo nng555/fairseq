@@ -4,15 +4,16 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import os
 import logging
-import numpy as np
+import os
 import sys
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
 from .. import FairseqDataset
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,8 @@ class RawAudioDataset(FairseqDataset):
         self,
         sample_rate,
         max_sample_size=None,
-        min_sample_size=None,
+        min_sample_size=0,
         shuffle=True,
-        min_length=0,
         pad=False,
         normalize=False,
     ):
@@ -36,7 +36,6 @@ class RawAudioDataset(FairseqDataset):
             max_sample_size if max_sample_size is not None else sys.maxsize
         )
         self.min_sample_size = min_sample_size
-        self.min_length = min_length
         self.pad = pad
         self.shuffle = shuffle
         self.normalize = normalize
@@ -72,11 +71,7 @@ class RawAudioDataset(FairseqDataset):
         return wav[start:end]
 
     def collater(self, samples):
-        samples = [
-            s
-            for s in samples
-            if s["source"] is not None
-        ]
+        samples = [s for s in samples if s["source"] is not None]
         if len(samples) == 0:
             return {}
 
@@ -139,9 +134,8 @@ class FileAudioDataset(RawAudioDataset):
         manifest_path,
         sample_rate,
         max_sample_size=None,
-        min_sample_size=None,
+        min_sample_size=0,
         shuffle=True,
-        min_length=0,
         pad=False,
         normalize=False,
     ):
@@ -150,24 +144,25 @@ class FileAudioDataset(RawAudioDataset):
             max_sample_size=max_sample_size,
             min_sample_size=min_sample_size,
             shuffle=shuffle,
-            min_length=min_length,
             pad=pad,
             normalize=normalize,
         )
 
         self.fnames = []
+        self.line_inds = set()
 
         skipped = 0
         with open(manifest_path, "r") as f:
             self.root_dir = f.readline().strip()
-            for line in f:
+            for i, line in enumerate(f):
                 items = line.strip().split("\t")
                 assert len(items) == 2, line
                 sz = int(items[1])
-                if min_length is not None and sz < min_length:
+                if min_sample_size is not None and sz < min_sample_size:
                     skipped += 1
                     continue
                 self.fnames.append(items[0])
+                self.line_inds.add(i)
                 self.sizes.append(sz)
         logger.info(f"loaded {len(self.fnames)}, skipped {skipped} samples")
 

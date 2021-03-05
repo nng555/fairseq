@@ -64,9 +64,9 @@ class TestTranslationGPU(unittest.TestCase):
                         "--decoder-layers",
                         "2",
                         "--encoder-embed-dim",
-                        "8",
+                        "64",
                         "--decoder-embed-dim",
-                        "8",
+                        "64",
                         "--fp16",
                     ],
                     run_validation=True,
@@ -93,17 +93,25 @@ class TestTranslationGPU(unittest.TestCase):
                     ],
                     task="translation_lev",
                 )
+                gen_config = [
+                    "--task",
+                    "translation_lev",
+                    "--iter-decode-max-iter",
+                    "9",
+                    "--iter-decode-eos-penalty",
+                    "0",
+                    "--print-step",
+                ]
+                # non-ensemble generation
+                generate_main(data_dir, gen_config)
+                # ensemble generation
                 generate_main(
                     data_dir,
-                    [
-                        "--task",
-                        "translation_lev",
-                        "--iter-decode-max-iter",
-                        "9",
-                        "--iter-decode-eos-penalty",
-                        "0",
-                        "--print-step",
-                    ],
+                    gen_config,
+                    path=os.pathsep.join([
+                        os.path.join(data_dir, "checkpoint_last.pt"),
+                        os.path.join(data_dir, "checkpoint_last.pt"),
+                    ]),
                 )
 
 
@@ -139,7 +147,7 @@ def _quantize_language_model(data_dir, arch, extra_flags=None, run_validation=Fa
             "--ddp-backend",
             "no_c10d",
             "--num-workers",
-            0,
+            "0",
         ]
         + (extra_flags or []),
     )
@@ -177,7 +185,7 @@ def _quantize_language_model(data_dir, arch, extra_flags=None, run_validation=Fa
             "--ddp-backend",
             "no_c10d",
             "--num-workers",
-            0,
+            "0",
             "--quant-noise-scalar",
             "0.5",
         ]
@@ -215,7 +223,7 @@ def _quantize_language_model(data_dir, arch, extra_flags=None, run_validation=Fa
             "--ddp-backend",
             "no_c10d",
             "--num-workers",
-            0,
+            "0",
             "--restore-file",
             os.path.join(data_dir, "checkpoint_last.pt"),
             "--reset-optimizer",

@@ -8,17 +8,18 @@
 Run inference for pre-processed data with a trained model.
 """
 
-import editdistance
+import ast
 import logging
 import math
 import os
 import sys
 
+import editdistance
 import numpy as np
 import torch
-from fairseq import checkpoint_utils, options, progress_bar, utils, tasks
-from fairseq.logging.meters import StopwatchMeter, TimeMeter
+from fairseq import checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.data.data_utils import post_process
+from fairseq.logging.meters import StopwatchMeter, TimeMeter
 
 
 logging.basicConfig()
@@ -38,21 +39,26 @@ def add_asr_eval_argument(parser):
         help="wfstlm on dictonary\
 output units",
     )
-    parser.add_argument(
-        "--lm-weight",
-        "--lm_weight",
-        type=float,
-        default=0.2,
-        help="weight for lm while interpolating with neural score",
-    )
+    try:
+        parser.add_argument(
+            "--lm-weight",
+            "--lm_weight",
+            type=float,
+            default=0.2,
+            help="weight for lm while interpolating with neural score",
+        )
+    except:
+        pass
     parser.add_argument(
         "--rnnt_len_penalty", default=-0.5, help="rnnt length penalty on word level"
     )
     parser.add_argument(
-        "--w2l-decoder", choices=["viterbi", "kenlm", "fairseqlm"], help="use a w2l decoder"
+        "--w2l-decoder",
+        choices=["viterbi", "kenlm", "fairseqlm"],
+        help="use a w2l decoder",
     )
     parser.add_argument("--lexicon", help="lexicon for w2l decoder")
-    parser.add_argument("--unit-lm", action='store_true', help="if using a unit lm")
+    parser.add_argument("--unit-lm", action="store_true", help="if using a unit lm")
     parser.add_argument("--kenlm-model", "--lm-model", help="lm model for w2l decoder")
     parser.add_argument("--beam-threshold", type=float, default=25.0)
     parser.add_argument("--beam-size-token", type=float, default=100)
@@ -84,10 +90,10 @@ def check_args(args):
     # assert args.path is not None, "--path required for generation!"
     # assert args.results_path is not None, "--results_path required for generation!"
     assert (
-            not args.sampling or args.nbest == args.beam
+        not args.sampling or args.nbest == args.beam
     ), "--sampling requires --nbest to be equal to --beam"
     assert (
-            args.replace_unk is None or args.raw_text
+        args.replace_unk is None or args.raw_text
     ), "--replace-unk requires a raw text dataset (--raw-text)"
 
 
@@ -95,7 +101,7 @@ def get_dataset_itr(args, task, models):
     return task.get_batch_iterator(
         dataset=task.dataset(args.gen_subset),
         max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
+        max_sentences=args.batch_size,
         max_positions=(sys.maxsize, sys.maxsize),
         ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
         required_batch_size_multiple=args.required_batch_size_multiple,
@@ -107,7 +113,7 @@ def get_dataset_itr(args, task, models):
 
 
 def process_predictions(
-        args, hypos, sp, tgt_dict, target_tokens, res_files, speaker, id
+    args, hypos, sp, tgt_dict, target_tokens, res_files, speaker, id
 ):
     for hypo in hypos[: min(len(hypos), args.nbest)]:
         hyp_pieces = tgt_dict.string(hypo["tokens"].int().cpu())
@@ -115,25 +121,34 @@ def process_predictions(
         if "words" in hypo:
             hyp_words = " ".join(hypo["words"])
         else:
-            hyp_words = post_process(hyp_pieces, args.remove_bpe)
+            hyp_words = post_process(hyp_pieces, args.post_process)
 
         if res_files is not None:
             print(
-                "{} ({}-{})".format(hyp_pieces, speaker, id), file=res_files["hypo.units"]
+                "{} ({}-{})".format(hyp_pieces, speaker, id),
+                file=res_files["hypo.units"],
             )
-            print("{} ({}-{})".format(hyp_words, speaker, id), file=res_files["hypo.words"])
+            print(
+                "{} ({}-{})".format(hyp_words, speaker, id),
+                file=res_files["hypo.words"],
+            )
 
         tgt_pieces = tgt_dict.string(target_tokens)
-        tgt_words = post_process(tgt_pieces, args.remove_bpe)
+        tgt_words = post_process(tgt_pieces, args.post_process)
 
         if res_files is not None:
-            print("{} ({}-{})".format(tgt_pieces, speaker, id), file=res_files["ref.units"])
-            print("{} ({}-{})".format(tgt_words, speaker, id), file=res_files["ref.words"])
-            # only score top hypothesis
-            if not args.quiet:
-                logger.debug("HYPO:" + hyp_words)
-                logger.debug("TARGET:" + tgt_words)
-                logger.debug("___________________")
+            print(
+                "{} ({}-{})".format(tgt_pieces, speaker, id),
+                file=res_files["ref.units"],
+            )
+            print(
+                "{} ({}-{})".format(tgt_words, speaker, id), file=res_files["ref.words"]
+            )
+
+        if not args.quiet:
+            logger.info("HYPO:" + hyp_words)
+            logger.info("TARGET:" + tgt_words)
+            logger.info("___________________")
 
         hyp_words = hyp_words.split()
         tgt_words = tgt_words.split()
@@ -143,7 +158,7 @@ def process_predictions(
 def prepare_result_files(args):
     def get_res_file(file_prefix):
         if args.num_shards > 1:
-            file_prefix = f'{args.shard_id}_{file_prefix}'
+            file_prefix = f"{args.shard_id}_{file_prefix}"
         path = os.path.join(
             args.results_path,
             "{}-{}-{}.txt".format(
@@ -163,47 +178,8 @@ def prepare_result_files(args):
     }
 
 
-def load_models_and_criterions(filenames, data_path, arg_overrides=None, task=None, model_state=None):
-    models = []
-    criterions = []
-
-    if arg_overrides is None:
-        arg_overrides = {}
-
-    arg_overrides['wer_args'] = None
-    arg_overrides['data'] = data_path
-
-    if filenames is None:
-        assert model_state is not None
-        filenames = [0]
-    else:
-        filenames = filenames.split(":")
-
-    for filename in filenames:
-        if model_state is None:
-            if not os.path.exists(filename):
-                raise IOError("Model file not found: {}".format(filename))
-            state = checkpoint_utils.load_checkpoint_to_cpu(filename, arg_overrides)
-        else:
-            state = model_state
-
-        args = state["args"]
-        if task is None:
-            task = tasks.setup_task(args)
-        model = task.build_model(args)
-        model.load_state_dict(state["model"], strict=True)
-        models.append(model)
-
-        criterion = task.build_criterion(args)
-        if "criterion" in state:
-            criterion.load_state_dict(state["criterion"], strict=True)
-        criterions.append(criterion)
-    return models, criterions, args
-
-
 def optimize_models(args, use_cuda, models):
-    """Optimize ensemble for generation
-    """
+    """Optimize ensemble for generation"""
     for model in models:
         model.make_generation_fast_(
             beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
@@ -226,7 +202,7 @@ class ExistingEmissionsDecoder(object):
             emissions = np.stack(self.emissions[ids])
         except:
             print([x.shape for x in self.emissions[ids]])
-            raise Exception('invalid sizes')
+            raise Exception("invalid sizes")
         emissions = torch.from_numpy(emissions)
         return self.decoder.decode(emissions)
 
@@ -234,46 +210,49 @@ class ExistingEmissionsDecoder(object):
 def main(args, task=None, model_state=None):
     check_args(args)
 
-    if args.max_tokens is None and args.max_sentences is None:
+    if args.max_tokens is None and args.batch_size is None:
         args.max_tokens = 4000000
     logger.info(args)
 
     use_cuda = torch.cuda.is_available() and not args.cpu
 
-    if task is None:
-        # Load dataset splits
-        task = tasks.setup_task(args)
+    logger.info("| decoding with criterion {}".format(args.criterion))
+
+    task = tasks.setup_task(args)
+
+    # Load ensemble
+    if args.load_emissions:
+        models, criterions = [], []
         task.load_dataset(args.gen_subset)
-        logger.info(
-            "| {} {} {} examples".format(
-                args.data, args.gen_subset, len(task.dataset(args.gen_subset))
-            )
+    else:
+        logger.info("| loading model(s) from {}".format(args.path))
+        models, saved_cfg, task = checkpoint_utils.load_model_ensemble_and_task(
+            utils.split_paths(args.path),
+            arg_overrides=ast.literal_eval(args.model_overrides),
+            task=task,
+            suffix=args.checkpoint_suffix,
+            strict=(args.checkpoint_shard_count == 1),
+            num_shards=args.checkpoint_shard_count,
+            state=model_state,
         )
+        optimize_models(args, use_cuda, models)
+        task.load_dataset(args.gen_subset, task_cfg=saved_cfg.task)
+
 
     # Set dictionary
     tgt_dict = task.target_dictionary
 
-    logger.info("| decoding with criterion {}".format(args.criterion))
-
-    # Load ensemble
-
-    if args.load_emissions:
-        models, criterions = [], []
-    else:
-        logger.info("| loading model(s) from {}".format(args.path))
-        models, criterions, _ = load_models_and_criterions(
-            args.path,
-            data_path=args.data,
-            arg_overrides=eval(args.model_overrides),  # noqa
-            task=task,
-            model_state=model_state,
+    logger.info(
+        "| {} {} {} examples".format(
+            args.data, args.gen_subset, len(task.dataset(args.gen_subset))
         )
-        optimize_models(args, use_cuda, models)
+    )
 
     # hack to pass transitions to W2lDecoder
     if args.criterion == "asg_loss":
-        trans = criterions[0].asg.trans.data
-        args.asg_transitions = torch.flatten(trans).tolist()
+        raise NotImplementedError("asg_loss is currently not supported")
+        # trans = criterions[0].asg.trans.data
+        # args.asg_transitions = torch.flatten(trans).tolist()
 
     # Load dataset (possibly sharded)
     itr = get_dataset_itr(args, task, models)
@@ -296,8 +275,11 @@ def main(args, task=None, model_state=None):
 
             return W2lFairseqLMDecoder(args, task.target_dictionary)
         else:
-            return super().build_generator(args)
+            print(
+                "only flashlight decoders with (viterbi, kenlm, fairseqlm) options are supported at the moment"
+            )
 
+    # please do not touch this unless you test both generate.py and infer.py with audio_pretraining task
     generator = build_generator(args)
 
     if args.load_emissions:
@@ -356,7 +338,11 @@ def main(args, task=None, model_state=None):
                     encoder_out = models[0](**sample["net_input"])
                     feat = encoder_out["encoder_out"].transpose(0, 1).cpu().numpy()
                     for i, id in enumerate(sample["id"]):
-                        padding = encoder_out["encoder_padding_mask"][i].cpu().numpy() if encoder_out["encoder_padding_mask"] is not None else None
+                        padding = (
+                            encoder_out["encoder_padding_mask"][i].cpu().numpy()
+                            if encoder_out["encoder_padding_mask"] is not None
+                            else None
+                        )
                         features[id.item()] = (feat[i], padding)
                     continue
             hypos = task.inference_step(generator, models, sample, prefix_tokens)
@@ -367,20 +353,31 @@ def main(args, task=None, model_state=None):
                 speaker = None
                 # id = task.dataset(args.gen_subset).ids[int(sample_id)]
                 id = sample_id
-                toks = sample["target"][i, :] if 'target_label' not in sample else sample["target_label"][i, :]
-                target_tokens = (
-                    utils.strip_pad(toks, tgt_dict.pad()).int().cpu()
+                toks = (
+                    sample["target"][i, :]
+                    if "target_label" not in sample
+                    else sample["target_label"][i, :]
                 )
+                target_tokens = utils.strip_pad(toks, tgt_dict.pad()).int().cpu()
                 # Process top predictions
                 errs, length = process_predictions(
-                    args, hypos[i], None, tgt_dict, target_tokens, res_files, speaker, id
+                    args,
+                    hypos[i],
+                    None,
+                    tgt_dict,
+                    target_tokens,
+                    res_files,
+                    speaker,
+                    id,
                 )
                 errs_t += errs
                 lengths_t += length
 
             wps_meter.update(num_generated_tokens)
             t.log({"wps": round(wps_meter.avg)})
-            num_sentences += sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
+            num_sentences += (
+                sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
+            )
 
     wer = None
     if args.dump_emissions:
@@ -408,7 +405,7 @@ def main(args, task=None, model_state=None):
                 gen_timer.sum,
                 num_sentences / gen_timer.sum,
                 1.0 / gen_timer.avg,
-                )
+            )
         )
         logger.info("| Generate {} with beam={}".format(args.gen_subset, args.beam))
     return task, wer
@@ -418,6 +415,7 @@ def make_parser():
     parser = options.get_generation_parser()
     parser = add_asr_eval_argument(parser)
     return parser
+
 
 def cli_main():
     parser = make_parser()

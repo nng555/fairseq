@@ -73,7 +73,10 @@ class GumbelVectorQuantizer(nn.Module):
             nn.init.normal_(self.weight_proj.weight, mean=0, std=1)
             nn.init.zeros_(self.weight_proj.bias)
 
-        assert len(temp) == 3, temp
+        if isinstance(temp, str):
+            import ast
+            temp = ast.literal_eval(temp)
+        assert len(temp) == 3, f"{temp}, {len(temp)}"
 
         self.max_temp, self.min_temp, self.temp_decay = temp
         self.curr_temp = self.max_temp
@@ -83,6 +86,7 @@ class GumbelVectorQuantizer(nn.Module):
         self.curr_temp = max(
             self.max_temp * self.temp_decay ** num_updates, self.min_temp
         )
+
     def get_codebook_indices(self):
         if self.codebook_indices is None:
             from itertools import product
@@ -106,8 +110,8 @@ class GumbelVectorQuantizer(nn.Module):
         indices = self.get_codebook_indices()
         return (
             self.vars.squeeze(0)
-                .index_select(0, indices)
-                .view(self.num_vars ** self.groups, -1)
+            .index_select(0, indices)
+            .view(self.num_vars ** self.groups, -1)
         )
 
     def sample_from_codebook(self, b, n):
@@ -115,7 +119,7 @@ class GumbelVectorQuantizer(nn.Module):
         indices = indices.view(-1, self.groups)
         cb_size = indices.size(0)
         assert (
-                n < cb_size
+            n < cb_size
         ), f"sample size {n} is greater than size of codebook {cb_size}"
         sample_idx = torch.randint(low=0, high=cb_size, size=(b * n,))
         indices = indices[sample_idx]

@@ -5,8 +5,8 @@
 
 import numpy as np
 import torch
-
 from fairseq.data import FairseqDataset, plasma_utils
+from fairseq.data.indexed_dataset import best_fitting_int_dtype
 
 
 class TokenBlockDataset(FairseqDataset):
@@ -31,6 +31,7 @@ class TokenBlockDataset(FairseqDataset):
             'complete_doc' break mode). Typically 1 if the sentences have eos
             and 0 otherwise.
     """
+
     def __init__(
         self,
         dataset,
@@ -49,8 +50,8 @@ class TokenBlockDataset(FairseqDataset):
             )
         except ImportError:
             raise ImportError(
-                'Please build Cython components with: `pip install --editable .` '
-                'or `python setup.py build_ext --inplace`'
+                "Please build Cython components with: `pip install --editable .` "
+                "or `python setup.py build_ext --inplace`"
             )
 
         super().__init__()
@@ -69,13 +70,15 @@ class TokenBlockDataset(FairseqDataset):
                 sizes = sizes.numpy()
             sizes = sizes.astype(np.int64)
 
-        break_mode = break_mode if break_mode is not None else 'none'
+        break_mode = break_mode if break_mode is not None else "none"
 
         # For "eos" break-mode, block_size is not required parameters.
         if break_mode == "eos" and block_size is None:
             block_size = 0
 
-        slice_indices = _get_slice_indices_fast(sizes, str(break_mode), block_size, document_sep_len)
+        slice_indices = _get_slice_indices_fast(
+            sizes, str(break_mode), block_size, document_sep_len
+        )
         self._sizes = slice_indices[:, 1] - slice_indices[:, 0]
 
         # build index mapping block indices to the underlying dataset indices
@@ -85,7 +88,7 @@ class TokenBlockDataset(FairseqDataset):
                 [
                     np.arange(len(sizes)),  # starting index in dataset
                     np.zeros(
-                        len(sizes), dtype=np.long
+                        len(sizes), dtype=np.compat.long
                     ),  # starting offset within starting index
                     np.arange(len(sizes)),  # ending index in dataset
                 ],
@@ -93,12 +96,18 @@ class TokenBlockDataset(FairseqDataset):
             )
         else:
             block_to_dataset_index = _get_block_to_dataset_index_fast(
-                sizes,
-                slice_indices,
+                sizes, slice_indices,
             )
-        self._slice_indices = plasma_utils.PlasmaArray(slice_indices)
-        self._sizes = plasma_utils.PlasmaArray(self._sizes)
-        self._block_to_dataset_index = plasma_utils.PlasmaArray(block_to_dataset_index)
+        size_dtype = np.uint16 if block_size < 65535 else np.uint32
+        slice_indices_dtype = best_fitting_int_dtype(slice_indices[-1].max())
+
+        self._slice_indices = plasma_utils.PlasmaArray(
+            slice_indices.astype(slice_indices_dtype)
+        )
+        self._sizes = plasma_utils.PlasmaArray(self._sizes.astype(size_dtype))
+        self._block_to_dataset_index = plasma_utils.PlasmaArray(
+            block_to_dataset_index.astype(slice_indices_dtype)
+        )
 
     @property
     def slice_indices(self):

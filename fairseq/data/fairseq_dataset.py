@@ -3,10 +3,12 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import numpy as np
 import torch.utils.data
-
 from fairseq.data import data_utils
+
+logger = logging.getLogger(__name__)
 
 
 class EpochListening:
@@ -53,6 +55,11 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
     def num_tokens(self, index):
         """Return the number of tokens in a sample. This value is used to
         enforce ``--max-tokens`` during batching."""
+        raise NotImplementedError
+
+    def num_tokens_vec(self, indices):
+        """Return the number of tokens for a set of positions defined by indices.
+        This value is used to enforce ``--max-tokens`` during batching."""
         raise NotImplementedError
 
     def size(self, index):
@@ -112,7 +119,7 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
 
             def adjust_bsz(bsz, num_tokens):
                 if bsz is None:
-                    assert max_tokens is not None, 'Must specify --max-tokens'
+                    assert max_tokens is not None, "Must specify --max-tokens"
                     bsz = max_tokens // num_tokens
                 if max_sentences is not None:
                     bsz = min(bsz, max_sentences)
@@ -120,17 +127,25 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
                     bsz >= required_batch_size_multiple
                     and bsz % required_batch_size_multiple != 0
                 ):
-                    bsz -= (bsz % required_batch_size_multiple)
+                    bsz -= bsz % required_batch_size_multiple
                 return bsz
 
-            fixed_shapes = np.array([
-                [adjust_bsz(bsz, num_tokens), num_tokens]
-                for (bsz, num_tokens) in fixed_shapes
-            ])
+            fixed_shapes = np.array(
+                [
+                    [adjust_bsz(bsz, num_tokens), num_tokens]
+                    for (bsz, num_tokens) in fixed_shapes
+                ]
+            )
+
+        try:
+            num_tokens_vec = self.num_tokens_vec(indices).astype('int64')
+        except NotImplementedError:
+            num_tokens_vec = None
 
         return data_utils.batch_by_size(
             indices,
             num_tokens_fn=self.num_tokens,
+            num_tokens_vec=num_tokens_vec,
             max_tokens=max_tokens,
             max_sentences=max_sentences,
             required_batch_size_multiple=required_batch_size_multiple,
@@ -154,17 +169,30 @@ class FairseqDataset(torch.utils.data.Dataset, EpochListening):
             list: list of removed indices
         """
         if isinstance(max_sizes, float) or isinstance(max_sizes, int):
-            if hasattr(self, 'sizes') and isinstance(self.sizes, np.ndarray):
+            if hasattr(self, "sizes") and isinstance(self.sizes, np.ndarray):
                 ignored = indices[self.sizes[indices] > max_sizes].tolist()
                 indices = indices[self.sizes[indices] <= max_sizes]
-            elif hasattr(self, 'sizes') and isinstance(self.sizes, list) and len(self.sizes) == 1:
+            elif (
+                hasattr(self, "sizes")
+                and isinstance(self.sizes, list)
+                and len(self.sizes) == 1
+            ):
                 ignored = indices[self.sizes[0][indices] > max_sizes].tolist()
                 indices = indices[self.sizes[0][indices] <= max_sizes]
             else:
-                indices, ignored = data_utils._filter_by_size_dynamic(indices, self.size, max_sizes)
+                indices, ignored = data_utils._filter_by_size_dynamic(
+                    indices, self.size, max_sizes
+                )
         else:
-            indices, ignored = data_utils._filter_by_size_dynamic(indices, self.size, max_sizes)
+            indices, ignored = data_utils._filter_by_size_dynamic(
+                indices, self.size, max_sizes
+            )
         return indices, ignored
+
+    @property
+    def supports_fetch_outside_dataloader(self):
+        """Whether this dataset supports fetching outside the workers of the dataloader."""
+        return True
 
 
 class FairseqIterableDataset(torch.utils.data.IterableDataset, EpochListening):

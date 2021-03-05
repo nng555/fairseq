@@ -11,34 +11,26 @@ import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from fairseq import utils
-from fairseq.models import (
-    FairseqEncoder,
-    register_model,
-    register_model_architecture,
-)
+from fairseq.model_parallel.models.transformer import ModelParallelTransformerEncoder
+from fairseq.models import register_model, register_model_architecture
 from fairseq.models.roberta import (
-    RobertaModel,
+    roberta_base_architecture,
+    roberta_prenorm_architecture,
     RobertaEncoder,
-    RobertaLMHead,
-    RobertaClassificationHead,
+    RobertaModel,
 )
-from fairseq.modules import (
-    LayerNorm,
-    TransformerSentenceEncoder,
-)
-from fairseq.model_parallel.modules import (
-    ModelParallelTransformerSentenceEncoder,
-)
-from fairseq.modules.transformer_sentence_encoder import init_bert_params
+from fairseq.modules import LayerNorm
+
+
 try:
     from fairseq.model_parallel.megatron.mpu import (
         copy_to_model_parallel_region,
         gather_from_model_parallel_region,
         ColumnParallelLinear,
-        RowParallelLinear,
+        VocabParallelEmbedding,
     )
+
     has_megatron_submodule = True
 except (ImportError, ModuleNotFoundError):
     has_megatron_submodule = False
@@ -46,10 +38,8 @@ except (ImportError, ModuleNotFoundError):
 logger = logging.getLogger(__name__)
 
 
-@register_model('model_parallel_roberta')
+@register_model("model_parallel_roberta")
 class ModelParallelRobertaModel(RobertaModel):
-
-
     def __init__(self, args, encoder):
         super().__init__(args, encoder)
 
@@ -57,7 +47,15 @@ class ModelParallelRobertaModel(RobertaModel):
 
     @staticmethod
     def add_args(parser):
-        super(ModelParallelRobertaModel, ModelParallelRobertaModel).add_args(parser)
+        RobertaModel.add_args(parser)
+        parser.add_argument(
+            "--no-final-layer-norm",
+            action="store_true",
+            help=(
+                "don't add final layernorm (only applicable when "
+                "--encoder-normalize-before=True"
+            ),
+        )
 
     @classmethod
     def build_model(cls, args, task):
@@ -66,18 +64,28 @@ class ModelParallelRobertaModel(RobertaModel):
         # make sure all arguments are present
         base_architecture(args)
 
-        if not hasattr(args, 'max_positions'):
+        task.source_dictionary.pad_to_multiple_(args.model_parallel_size * 8)
+        task.target_dictionary.pad_to_multiple_(args.model_parallel_size * 8)
+
+        if not hasattr(args, "max_positions"):
             args.max_positions = args.tokens_per_sample
 
-        if getattr(args, 'untie_weights_roberta', False):
+        if getattr(args, "untie_weights_roberta", False):
             raise NotImplementedError(
-                '--untie-weights-roberta is not supported in model parallel mode'
+                "--untie-weights-roberta is not supported in model parallel mode"
             )
 
         encoder = ModelParallelRobertaEncoder(args, task.source_dictionary)
         return cls(args, encoder)
 
-    def forward(self, src_tokens, features_only=False, return_all_hiddens=False, classification_head_name=None, **kwargs):
+    def forward(
+        self,
+        src_tokens,
+        features_only=False,
+        return_all_hiddens=False,
+        classification_head_name=None,
+        **kwargs
+    ):
         if classification_head_name is not None:
             features_only = True
 
@@ -87,7 +95,9 @@ class ModelParallelRobertaModel(RobertaModel):
             x = self.classification_heads[classification_head_name](x)
         return x, extra
 
-    def register_classification_head(self, name, num_classes=None, inner_dim=None, **kwargs):
+    def register_classification_head(
+        self, name, num_classes=None, inner_dim=None, **kwargs
+    ):
         """Register a classification head."""
         if name in self.classification_heads:
             prev_num_classes = self.classification_heads[name].out_proj.out_features
@@ -95,7 +105,7 @@ class ModelParallelRobertaModel(RobertaModel):
             if num_classes != prev_num_classes or inner_dim != prev_inner_dim:
                 logger.warning(
                     're-registering head "{}" with num_classes {} (prev: {}) '
-                    'and inner_dim {} (prev: {})'.format(
+                    "and inner_dim {} (prev: {})".format(
                         name, num_classes, prev_num_classes, inner_dim, prev_inner_dim
                     )
                 )
@@ -143,7 +153,9 @@ class ModelParallelRobertaLMHead(nn.Module):
 class ModelParallelRobertaClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout):
+    def __init__(
+        self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout
+    ):
         super().__init__()
         self.dense = ColumnParallelLinear(input_dim, inner_dim, gather_output=True)
         self.activation_fn = utils.get_activation_fn(activation_fn)
@@ -160,114 +172,54 @@ class ModelParallelRobertaClassificationHead(nn.Module):
         return x
 
 
-class ModelParallelRobertaEncoder(FairseqEncoder):
-    """RoBERTa encoder.
-
-    Implements the :class:`~fairseq.models.FairseqDecoder` interface required
-    by :class:`~fairseq.models.FairseqLanguageModel`.
-    """
+class ModelParallelRobertaEncoder(RobertaEncoder):
+    """RoBERTa encoder."""
 
     def __init__(self, args, dictionary):
-        super().__init__(dictionary)
-        self.args = args
+        super().__init__(args, dictionary)
+        assert not self.args.untie_weights_roberta
 
-        # RoBERTa is a sentence encoder model, so users will intuitively trim
-        # encoder layers. However, the implementation uses the fairseq decoder,
-        # so we fix here.
-        if args.encoder_layers_to_keep:
-            args.encoder_layers = len(args.encoder_layers_to_keep.split(","))
-            args.decoder_layers_to_keep = args.encoder_layers_to_keep
-            args.encoder_layers_to_keep = None
+    def build_embedding(self, vocab_size, embedding_dim, padding_idx):
+        return VocabParallelEmbedding(vocab_size, embedding_dim, padding_idx)
 
-        self.sentence_encoder = ModelParallelTransformerSentenceEncoder(
-            padding_idx=dictionary.pad(),
-            vocab_size=len(dictionary),
-            num_encoder_layers=args.encoder_layers,
-            embedding_dim=args.encoder_embed_dim,
-            ffn_embedding_dim=args.encoder_ffn_embed_dim,
-            num_attention_heads=args.encoder_attention_heads,
-            dropout=args.dropout,
-            attention_dropout=args.attention_dropout,
-            activation_dropout=args.activation_dropout,
-            layerdrop=args.encoder_layerdrop,
-            max_seq_len=args.max_positions,
-            num_segments=0,
-            encoder_normalize_before=False,
-            apply_bert_init=False,
-            activation_fn=args.activation_fn,
-        )
-        self.lm_head = ModelParallelRobertaLMHead(
-            embed_dim=args.encoder_embed_dim,
-            output_dim=len(dictionary),
-            activation_fn=args.activation_fn,
-            weight=self.sentence_encoder.embed_tokens.weight,
-        )
+    def build_encoder(self, args, dictionary, embed_tokens):
+        return ModelParallelTransformerEncoder(args, dictionary, embed_tokens)
 
-    def forward(self, src_tokens, features_only=False, return_all_hiddens=False, masked_tokens=None, **unused):
-        """
-        Args:
-            src_tokens (LongTensor): input tokens of shape `(batch, src_len)`
-            features_only (bool, optional): skip LM head and just return
-                features. If True, the output will be of shape
-                `(batch, src_len, embed_dim)`.
-            return_all_hiddens (bool, optional): also return all of the
-                intermediate hidden states (default: False).
-
-        Returns:
-            tuple:
-                - the LM output of shape `(batch, src_len, vocab)`
-                - a dictionary of additional data, where 'inner_states'
-                  is a list of hidden states. Note that the hidden
-                  states have shape `(src_len, batch, vocab)`.
-        """
-        x, extra = self.extract_features(src_tokens, return_all_hiddens=return_all_hiddens)
-        if not features_only:
-            x = self.output_layer(x, masked_tokens=masked_tokens)
-        return x, extra
-
-    def extract_features(self, src_tokens, return_all_hiddens=False, **unused):
-        inner_states, _ = self.sentence_encoder(
-            src_tokens,
-            last_state_only=not return_all_hiddens,
-        )
-        features = inner_states[-1].transpose(0, 1)  # T x B x C -> B x T x C
-        return features, {'inner_states': inner_states if return_all_hiddens else None}
-
-    def output_layer(self, features, masked_tokens=None, **unused):
-        return self.lm_head(features, masked_tokens)
-
-    def max_positions(self):
-        """Maximum output length supported by the encoder."""
-        return self.args.max_positions
+    def build_lm_head(self, embed_dim, output_dim, activation_fn, weight):
+        return ModelParallelRobertaLMHead(embed_dim, output_dim, activation_fn, weight)
 
 
-@register_model_architecture('model_parallel_roberta', 'model_parallel_roberta')
+@register_model_architecture("model_parallel_roberta", "model_parallel_roberta")
 def base_architecture(args):
-    args.encoder_layers = getattr(args, 'encoder_layers', 12)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 768)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 3072)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 12)
-
-    args.activation_fn = getattr(args, 'activation_fn', 'gelu')
-    args.pooler_activation_fn = getattr(args, 'pooler_activation_fn', 'tanh')
-
-    args.dropout = getattr(args, 'dropout', 0.1)
-    args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
-    args.activation_dropout = getattr(args, 'activation_dropout', 0.0)
-    args.pooler_dropout = getattr(args, 'pooler_dropout', 0.0)
-    args.encoder_layers_to_keep = getattr(args, 'encoder_layers_to_keep', None)
-    args.encoder_layerdrop = getattr(args, 'encoder_layerdrop', 0.0)
+    args.no_final_layer_norm = getattr(args, "no_final_layer_norm", False)
+    # model parallel RoBERTa defaults to "Pre-LN" formulation
+    roberta_prenorm_architecture(args)
 
 
-@register_model_architecture('model_parallel_roberta', 'model_parallel_roberta_base')
-def roberta_base_architecture(args):
+# earlier versions of model parallel RoBERTa removed the final layer norm
+@register_model_architecture("model_parallel_roberta", "model_parallel_roberta_v1")
+def model_parallel_roberta_v1_architecture(args):
+    args.no_final_layer_norm = getattr(args, "no_final_layer_norm", True)
     base_architecture(args)
 
 
-@register_model_architecture('model_parallel_roberta', 'model_parallel_roberta_large')
-def roberta_large_architecture(args):
-    args.encoder_layers = getattr(args, 'encoder_layers', 24)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 1024)
-    args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 4096)
-    args.encoder_attention_heads = getattr(args, 'encoder_attention_heads', 16)
+@register_model_architecture(
+    "model_parallel_roberta", "model_parallel_roberta_postnorm"
+)
+def model_parallel_roberta_postnorm_architecture(args):
+    # the original BERT/RoBERTa uses the "Post-LN" formulation
+    roberta_base_architecture(args)
+
+
+@register_model_architecture("model_parallel_roberta", "model_parallel_roberta_base")
+def model_parallel_roberta_base_architecture(args):
+    base_architecture(args)
+
+
+@register_model_architecture("model_parallel_roberta", "model_parallel_roberta_large")
+def model_parallel_roberta_large_architecture(args):
+    args.encoder_layers = getattr(args, "encoder_layers", 24)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4096)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 16)
     base_architecture(args)
