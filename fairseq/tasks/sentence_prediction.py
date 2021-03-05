@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+st_logits Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
@@ -101,30 +101,30 @@ class SentencePredictionTask(LegacyFairseqTask):
         # reconstruction arguments
         parser.add_argument('--recon-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
                             help='path to reconstruction model directory')
-        parser.add_argument('--recon-model-file', default='model.pt',
-                            help='filename of reconstruction model checkpoint')
-        parser.add_argument('--recon-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
-                            help='path to reconstruction model data directory')
+        #parser.add_argument('--recon-model-file', default='model.pt',
+        #                    help='filename of reconstruction model checkpoint')
+        #parser.add_argument('--recon-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        #                    help='path to reconstruction model data directory')
         parser.add_argument('--comp-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
                             help='path to comparison model directory')
-        parser.add_argument('--comp-model-file', default=None,
-                            help='filename of comparison model checkpoint')
-        parser.add_argument('--comp-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
-                            help='path to comparison model data directory')
+        #parser.add_argument('--comp-model-file', default=None,
+        #                    help='filename of comparison model checkpoint')
+        #parser.add_argument('--comp-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        #                    help='path to comparison model data directory')
         parser.add_argument('--topk', default=-1, type=int,
                             help='topk sampling for reconstruction')
 
         # self-training arguments
-        parser.add_argument('--self-train', default=False, action='store_true',
-                            help='whether to self-train or not')
+        #parser.add_argument('--self-train', default=False, action='store_true',
+        #                    help='whether to self-train or not')
         parser.add_argument('--st-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
                             help='path to self-training model directory')
-        parser.add_argument('--st-model-file', default='model.pt',
-                            help='filename of self-training model checkpoint')
-        parser.add_argument('--st-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
-                            help='path to self-training model data directory')
-        parser.add_argument('--threshold', default=None, type=float,
-                            help='min probability for self-training prediction')
+        #parser.add_argument('--st-model-file', default='model.pt',
+        #                    help='filename of self-training model checkpoint')
+        #parser.add_argument('--st-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        #                    help='path to self-training model data directory')
+        #parser.add_argument('--threshold', default=None, type=float,
+        #                    help='min probability for self-training prediction')
 
         # noisy student arguments
         parser.add_argument('--unlabelled-data', default=None,
@@ -132,6 +132,10 @@ class SentencePredictionTask(LegacyFairseqTask):
         parser.add_argument('--unlabelled-augment', default='none',
                             choices=['none', 'mask', 'reconstruct'],
                             help='if not none, apply data augmentation to unlabelled data')
+
+        # random seed
+        parser.add_argument('--data-seed', default=None, type=int,
+                            help='random seed for data ordering')
 
         # PATE arguments
         parser.add_argument('--num-teachers', default=0, type=int,
@@ -169,28 +173,23 @@ class SentencePredictionTask(LegacyFairseqTask):
             self._max_positions = args.max_positions
         args.tokens_per_sample = self._max_positions
 
-        if self.args.augment == 'reconstruct' or self.args.unlabelled_augment == 'reconstruct':
+        self.depth = args.depth
+
+        if hasattr(args, 'only_eval'):
+            self.only_eval = args.only_eval
+        else:
+            self.only_eval = False
+
+        if (self.args.augment == 'reconstruct' or self.args.unlabelled_augment == 'reconstruct') and not self.only_eval:
             print(self.args.recon_model_path)
-            print(self.args.recon_model_file)
-            print(self.args.recon_model_data)
-            self.recon_model = RobertaModel.from_pretrained(
-                self.args.recon_model_path,
-                checkpoint_file = self.args.recon_model_file,
-                data_name_or_path = self.args.recon_model_data
-            )
+            self.recon_model = load_model_ensemble([self.args.recon_model_path])[0][0]
             self.recon_model.eval()
             self.recon_model.cuda()
 
             self.comp_model=None
             print(self.args.comp_model_path)
-            print(self.args.comp_model_file)
-            print(self.args.comp_model_data)
-            if self.args.comp_model_file:
-                self.comp_model = RobertaModel.from_pretrained(
-                    self.args.comp_model_path,
-                    checkpoint_file = self.args.comp_model_file,
-                    data_name_or_path = self.args.comp_model_data
-                )
+            if self.args.comp_model_path:
+                self.comp_model = load_model_ensemble([self.args.comp_model_path])[0][0]
                 self.comp_model.eval()
                 self.comp_model.cuda()
 
@@ -251,7 +250,7 @@ class SentencePredictionTask(LegacyFairseqTask):
         mask_whole_words = get_whole_word_mask(self.args, self.source_dictionary) \
             if self.args.mask_whole_words else None
 
-        if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0:
+        if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0 and not self.only_eval:
             input0_mask, input0_tgt = MaskTokensDataset.apply_mask(
                 input0,
                 self.source_dictionary,
@@ -285,37 +284,28 @@ class SentencePredictionTask(LegacyFairseqTask):
 
         if self.args.init_token is not None:
             input0 = PrependTokenDataset(input0, self.args.init_token)
-            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0:
+            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0 and not self.only_eval:
                 input0_mask = PrependTokenDataset(input0_mask, self.args.init_token)
                 input0_tgt = PrependTokenDataset(input0_tgt, self.source_dictionary.pad())
 
         if input1 is None:
             src_tokens = input0
-            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0:
+            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0 and not self.only_eval:
                 src_mask = input0_mask
                 src_tgt = input0_tgt
         else:
             if self.args.separator_token is not None:
                 input1 = PrependTokenDataset(input1, self.args.separator_token)
-                if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0:
+                if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0 and not self.only_eval:
                     input1_mask = PrependTokenDataset(input1_mask, self.args.separator_token)
                     input1_tgt = PrependTokenDataset(input1_tgt, self.source_dictionary.pad())
 
             src_tokens = ConcatSentencesDataset(input0, input1)
-            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0:
+            if augment in ['mask', 'reconstruct'] and split == 'train' and self.args.mask_prob > 0 and not self.only_eval:
                 src_mask = ConcatSentencesDataset(input0_mask, input1_mask)
                 src_tgt = ConcatSentencesDataset(input0_tgt, input1_tgt)
 
-        src_tokens = maybe_shorten_dataset(
-            src_tokens,
-            split,
-            self.args.shorten_data_split_list,
-            self.args.shorten_method,
-            self._max_positions,
-            self.args.seed,
-        )
-
-        if augment == 'reconstruct' and split =='train' and self.args.mask_prob > 0:
+        if augment == 'reconstruct' and split =='train' and self.args.mask_prob > 0 and not self.only_eval:
             src_mask = maybe_shorten_dataset(
                 src_mask,
                 split,
@@ -331,16 +321,16 @@ class SentencePredictionTask(LegacyFairseqTask):
                 mask_idx=self.mask_idx,
                 bos_idx=self.source_dictionary.bos(),
                 eos_idx=self.source_dictionary.eos(),
-                recon_model=self.recon_model.model,
+                recon_model=self.recon_model,
                 comp_model=self.comp_model,
-                device=self.recon_model.device,
+                #device=self.recon_model.device,
                 seed=self.args.seed,
                 topk=self.args.topk,
             )
 
             # mask and reconstruct again for longer random walks
             if hasattr(self, 'depth'):
-                for _ in range(depth - 1):
+                for d in range(self.depth - 1):
                     src_mask, src_tgt = MaskTokensDataset.apply_mask(
                         src_mask,
                         self.source_dictionary,
@@ -354,6 +344,7 @@ class SentencePredictionTask(LegacyFairseqTask):
                         max_mask_rate=self.args.max_mask_rate,
                         freq_weighted_replacement=self.args.freq_weighted_replacement,
                         mask_whole_words=mask_whole_words,
+                        depth = d + 1,
                     )
                     src_mask = ReconstructTokensDataset.apply_reconstruct(
                         src_mask,
@@ -367,9 +358,18 @@ class SentencePredictionTask(LegacyFairseqTask):
                         device=self.recon_model.device,
                         seed=self.args.seed,
                         topk=self.args.topk,
+                        depth = d + 1,
                     )
 
             if keep_original:
+                src_tokens = maybe_shorten_dataset(
+                    src_tokens,
+                    split,
+                    self.args.shorten_data_split_list,
+                    self.args.shorten_method,
+                    self._max_positions,
+                    self.args.seed,
+                )
                 src_tokens = ConcatDataset([src_tokens, src_mask])
             else:
                 src_tokens = src_mask
@@ -432,8 +432,12 @@ class SentencePredictionTask(LegacyFairseqTask):
                     self.args.num_teachers,
             )
 
-        with data_utils.numpy_seed(self.args.seed):
-            shuffle = np.random.permutation(len(src_tokens))
+        if hasattr(self.args, 'data_seed'):
+            with data_utils.numpy_seed(self.args.data_seed):
+                shuffle = np.random.permutation(len(src_tokens))
+        else:
+            with data_utils.numpy_seed(self.args.seed):
+                shuffle = np.random.permutation(len(src_tokens))
 
         dataset = {
             'id': IdDataset(),

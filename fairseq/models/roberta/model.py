@@ -98,6 +98,8 @@ class RobertaModel(FairseqEncoderModel):
                             help='scalar quantization noise and scalar quantization at training time')
         parser.add_argument('--untie-weights-roberta', action='store_true',
                             help='Untie weights between embeddings and classifiers in RoBERTa')
+        parser.add_argument('--layer-seed', type=int, default=None,
+                            help='random seed for classification head')
 
     @classmethod
     def build_model(cls, args, task):
@@ -150,6 +152,7 @@ class RobertaModel(FairseqEncoderModel):
             self.args.pooler_dropout,
             self.args.quant_noise_pq,
             self.args.quant_noise_pq_block_size,
+            self.args.layer_seed,
         )
 
     @property
@@ -260,11 +263,13 @@ class RobertaLMHead(nn.Module):
 class RobertaClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
-    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout, q_noise=0, qn_block_size=8):
+    def __init__(self, input_dim, inner_dim, num_classes, activation_fn, pooler_dropout, q_noise=0, qn_block_size=8, seed=None):
         super().__init__()
         self.dense = nn.Linear(input_dim, inner_dim)
         self.activation_fn = utils.get_activation_fn(activation_fn)
         self.dropout = nn.Dropout(p=pooler_dropout)
+        if seed:
+            torch.manual_seed(seed)
         self.out_proj = apply_quant_noise_(
             nn.Linear(inner_dim, num_classes), q_noise, qn_block_size
         )

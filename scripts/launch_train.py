@@ -15,7 +15,7 @@ def launch(cfg: DictConfig):
 
     if cfg.data.task in ['nli']:
         base_path = '/scratch/ssd001/datasets/'
-    elif cfg.data.task in ['sentiment', 'translation']:
+    elif cfg.data.task in ['sentiment', 'translation', 'robust']:
         base_path = '/h/nng/data'
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))
@@ -43,6 +43,7 @@ def launch(cfg: DictConfig):
             cfg.train.reset_meters = True
 
     if cfg.gen.recon == 'local' and 'self_train' not in cfg.data.bin:
+        print("FINDING LOCAL PATH", flush=True)
         r_path = os.path.join('/h/nng/slurm', cfg.gen.recon_file.date, slurm_utils.resolve_name(cfg.gen.recon_file.name))
         if os.path.exists(os.path.join(r_path, 'checkpoint_best.pt')):
             r_file = r_path

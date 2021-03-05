@@ -65,7 +65,8 @@ class MaskTokensDataset(BaseWrapperDataset):
         epoch_mask_rate: float = 0.0,
         max_mask_rate: float = 1.0,
         freq_weighted_replacement: bool = False,
-        mask_whole_words: torch.Tensor = None,
+        mask_whole_words: bool = False,
+        depth: int = 0,
     ):
         assert 0.0 < mask_prob < 1.0
         assert 0.0 <= random_token_prob <= 1.0
@@ -84,6 +85,7 @@ class MaskTokensDataset(BaseWrapperDataset):
         self.epoch_mask_rate = epoch_mask_rate
         self.max_mask_rate = max_mask_rate
         self.mask_whole_words = mask_whole_words
+        self.depth = depth
 
         if random_token_prob > 0.0:
             if freq_weighted_replacement:
@@ -105,7 +107,10 @@ class MaskTokensDataset(BaseWrapperDataset):
 
     @lru_cache(maxsize=8)
     def __getitem__(self, index: int):
-        with data_utils.numpy_seed(self.seed, self.epoch, index):
+        if not hasattr(self, 'depth'):
+            self.depth = 0
+        with data_utils.numpy_seed(self.seed, self.epoch, index, self.depth):
+
             item = self.dataset[index]
             sz = len(item)
 
@@ -114,7 +119,7 @@ class MaskTokensDataset(BaseWrapperDataset):
                     self.mask_idx,
                 )
 
-            if self.mask_whole_words is not None:
+            if self.mask_whole_words:
                 word_begins_mask = self.mask_whole_words.gather(0, item)
                 word_begins_idx = word_begins_mask.nonzero().view(-1)
                 sz = len(word_begins_idx)
@@ -134,6 +139,7 @@ class MaskTokensDataset(BaseWrapperDataset):
                 mask_prob * sz + np.random.rand()
             )
             mask[np.random.choice(sz, num_mask, replace=False)] = True
+
 
             if self.return_masked_tokens:
                 # exit early if we're just returning the masked tokens

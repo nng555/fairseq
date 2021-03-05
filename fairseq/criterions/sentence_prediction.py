@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from fairseq import metrics, utils
+from fairseq.checkpoint_utils import load_model_ensemble
 from fairseq.criterions import FairseqCriterion, register_criterion
 
 from fairseq.models.roberta import RobertaModel
@@ -23,30 +24,21 @@ class SentencePredictionCriterion(FairseqCriterion):
             regression_target,
             soft_labels,
             num_classes,
-            self_train,
             st_model_path,
-            st_model_file,
-            st_model_data,
             threshold):
         super().__init__(task)
         self.classification_head_name = classification_head_name
         self.regression_target = regression_target
         self.soft_labels = soft_labels
         self.num_classes = num_classes
-        self.self_train = self_train
         self.threshold = threshold
 
-        if self_train:
-            print(st_model_path)
-            print(st_model_file)
-            print(st_model_data)
-            self.self_train_model = RobertaModel.from_pretrained(
-                st_model_path,
-                checkpoint_file = st_model_file,
-                data_name_or_path = st_model_data
-            )
-            self.self_train_model.eval()
-            self.self_train_model.cuda()
+        if st_model_path:
+            model = load_model_ensemble([st_model_path])
+            self.st_model = model[0][0].eval()
+            self.st_model.cuda()
+        else:
+            self.st_model = None
 
     @staticmethod
     def add_args(parser):
@@ -76,32 +68,37 @@ class SentencePredictionCriterion(FairseqCriterion):
         )
         preds = logits.max(dim=1)[1]
 
-
-        if self.self_train:
-            with torch.no_grad():
-                probs = self.self_train_model.predict(
-                            'sentence_classification_head',
-                            sample['net_input']['src_tokens'])
-                probs = torch.exp(probs)
-            if self.soft_labels:
-                self_targets = probs.view(-1, self.num_classes).float()
-                sample_size = self_targets.size()[0]
-            else:
-                _, self_targets = torch.max(probs, -1)
-                sample_size = self_targets.numel()
-
-            if self.threshold:
-                mask, _ = torch.max(probs, dim=-1)
-                mask = mask > self.threshold
-                self_targets = self_targets[mask]
-                logits = logits[mask]
-
         if self.soft_labels:
             targets = model.get_targets(sample, [logits]).view(-1, self.num_classes).float()
             sample_size = targets.size()[0]
         else:
             targets = model.get_targets(sample, [logits]).view(-1)
             sample_size = targets.numel()
+
+        if self.st_model:
+            with torch.no_grad():
+                st_logits = self.st_model(
+                    **sample['net_input'],
+                    features_only=True,
+                    classification_head_name=self.classification_head_name,
+                )
+                probs = F.softmax(st_logits)
+            print("===================")
+            print('st_logits' + str(st_logits), flush=True)
+            print('probs' + str(probs), flush=True)
+            if self.soft_labels:
+                self_targets = probs.view(-1, self.num_classes).float()
+                sample_size = self_targets.size()[0]
+            else:
+                _, self_targets = torch.max(probs, -1)
+                sample_size = self_targets.numel()
+            print('self_targets' + str(self_targets), flush=True)
+
+            if self.threshold:
+                mask, _ = torch.max(probs, dim=-1)
+                mask = mask > self.threshold
+                self_targets = self_targets[mask]
+                logits = logits[mask]
 
         def mean_ds(x: Tensor, dim=None) -> Tensor:
             return (
@@ -110,16 +107,17 @@ class SentencePredictionCriterion(FairseqCriterion):
                 else x.float().mean(dim).type_as(x)
             )
 
-        if self.self_train:
+        if self.st_model:
             loss_targets = self_targets
         else:
             loss_targets = targets
 
         if not self.regression_target:
-            logits = F.log_softmax(logits, dim=-1, dtype=torch.float32)
+            lprobs = F.log_softmax(logits, dim=-1, dtype=torch.float32)
+            print('lprobs' + str(lprobs), flush=True)
             if self.soft_labels:
                 loss = F.kl_div(
-                    logits,
+                    lprobs,
                     loss_targets,
                     reduction='none',
                 )
@@ -128,7 +126,7 @@ class SentencePredictionCriterion(FairseqCriterion):
                 loss = mean_ds(loss)
             else:
                 loss = F.nll_loss(
-                    logits,
+                    lprobs,
                     loss_targets,
                     reduction='sum',
                 )
@@ -161,6 +159,8 @@ class SentencePredictionCriterion(FairseqCriterion):
             logging_output.update(
                 ncorrect=(preds == targets).sum().item()
             )
+
+        print("=====================", flush=True)
         return loss, sample_size, logging_output
 
     @staticmethod

@@ -238,7 +238,10 @@ def load_model_ensemble_and_task(filenames, arg_overrides=None, task=None, stric
             raise IOError("Model file not found: {}".format(filename))
         state = load_checkpoint_to_cpu(filename, arg_overrides)
 
+
         args = state["args"]
+        if arg_overrides and hasattr(arg_overrides, 'only_eval'):
+            args.only_eval = arg_overrides.only_eval
         if task is None:
             task = tasks.setup_task(args)
 

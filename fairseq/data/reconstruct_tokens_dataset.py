@@ -36,9 +36,10 @@ class ReconstructTokensDataset(BaseWrapperDataset):
         eos_idx: int,
         recon_model,
         comp_model,
-        device,
+        #device,
         seed: int = 1,
         topk: int = -1,
+        depth: int = 0,
     ):
         self.dataset = dataset
         self.target_dataset = target_dataset
@@ -53,17 +54,21 @@ class ReconstructTokensDataset(BaseWrapperDataset):
             self.comp_model = comp_model.model
         else:
             self.comp_model = None
-        self.device = device
-
+        #self.device = device
+        self.depth = depth
         self.epoch = 0
 
     def set_epoch(self, epoch, **unused):
         super().set_epoch(epoch)
-        self.epoch = epoch
+        if hasattr(self.target_dataset, 'set_epoch'):
+            self.target_dataset.set_epoch(epoch)
+            self.epoch = epoch
 
     @lru_cache(maxsize=8)
     def __getitem__(self, index: int):
-        with data_utils.numpy_seed(self.seed, self.epoch, index):
+        if not hasattr(self, 'depth'):
+            self.depth = 0
+        with data_utils.numpy_seed(self.seed, self.epoch, index, self.depth):
             masked_item = self.dataset[index]
             target_item = self.target_dataset[index]
 
@@ -81,7 +86,7 @@ class ReconstructTokensDataset(BaseWrapperDataset):
 
             with utils.model_eval(self.recon_model):
                 features, _ = self.recon_model(
-                    masked_tokens.long().to(device=self.device),
+                    masked_tokens.long().cuda(),#.to(device=self.device),
                     features_only=False,
                     return_all_hiddens=False,
                 )
@@ -91,15 +96,18 @@ class ReconstructTokensDataset(BaseWrapperDataset):
                 probs = probs.softmax(dim=-1)
                 with utils.model_eval(self.comp_model):
                     cfeatures, _ = self.comp_model(
-                        masked_tokens.long().to(device=self.device),
+                        masked_tokens.long().cuda(),#.to(device=self.device),
                         features_only=False,
                         return_all_hiddens=False,
                     )
                 clogits = cfeatures[masked_index]
                 cprobs = clogits.softmax(dim=-1)
-                probs = probs - cprobs
-                probs -= torch.min(probs, dim=-1).values.unsqueeze(-1)
-
+                prob_diffs = probs - cprobs
+                prob_mask = (prob_diffs > 0).float()
+                if not hasattr(self, 'lamb'):
+                    self.lamb = 1
+                prob_mask[prob_mask != 1] = torch.exp(self.lamb * prob_diffs[prob_mask != 1])
+                probs = probs * prob_mask
 
             if self.comp_model:
                 negate = 0
@@ -137,6 +145,10 @@ class ReconstructTokensDataset(BaseWrapperDataset):
 
             # set samples
             masked_tokens[masked_index] = samples.cpu()
+
+            #print("RECONSTRUCTED, depth %d=============" % self.depth)
+            #print(masked_tokens[0], flush=True)
+            #print("====================================")
 
             return masked_tokens[0]
 
