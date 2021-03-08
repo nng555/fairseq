@@ -2,13 +2,14 @@ import os
 import hydra
 import subprocess
 import logging
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from hydra import slurm_utils
 
 log = logging.getLogger(__name__)
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml', strict=False)
+@hydra.main(config_path='/h/nng/conf/selftrain/config.yaml')
 def launch(cfg: DictConfig):
+    #print(OmegaConf.to_yaml(cfg))
     slurm_utils.symlink_hydra(cfg, os.getcwd())
 
     os.environ['NCCL_DEBUG'] = 'INFO'
@@ -21,7 +22,7 @@ def launch(cfg: DictConfig):
         raise Exception('task %s data path not found'.format(cfg.data.task))
 
     d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
-    bin_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin, 'bin')
+    bin_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin.name, 'bin')
     j_dir = slurm_utils.get_j_dir(cfg)
 
     if os.path.exists(os.path.join(j_dir, os.environ['SLURM_JOB_ID'], 'checkpoint_last.pt')):
@@ -42,7 +43,7 @@ def launch(cfg: DictConfig):
             cfg.train.reset_dataloader = True
             cfg.train.reset_meters = True
 
-    if cfg.gen.recon == 'local' and 'self_train' not in cfg.data.bin:
+    if cfg.train.augment and cfg.gen.recon == 'local' and 'self_train' not in cfg.data.bin:
         print("FINDING LOCAL PATH", flush=True)
         r_path = os.path.join('/h/nng/slurm', cfg.gen.recon_file.date, slurm_utils.resolve_name(cfg.gen.recon_file.name))
         if os.path.exists(os.path.join(r_path, 'checkpoint_best.pt')):
@@ -58,8 +59,6 @@ def launch(cfg: DictConfig):
                 raise Exception("Model in path {} not found".format(r_path))
 
         cfg.train.recon_model_path = r_file
-        cfg.train.recon_model_file = 'checkpoint_best.pt'
-        cfg.train.recon_model_data = os.path.join(d_path, cfg.gen.recon_file.rdset, 'unlabelled', 'bin')
 
     flags = [['--' + k.replace('_', '-'), slurm_utils.eval_val(str(v))] for k, v in cfg.train.items() if v != None]
     flags = [val for sublist in flags if sublist[1] != "False" for val in sublist if val != "True"]

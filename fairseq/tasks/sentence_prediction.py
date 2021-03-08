@@ -1,4 +1,4 @@
-st_logits Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
@@ -31,6 +31,8 @@ from fairseq.data import (
     data_utils,
 )
 from fairseq.data.shorten_dataset import maybe_shorten_dataset
+import fairseq.checkpoint_utils as checkpoint_utils
+from fairseq.models.roberta import RobertaModel
 from fairseq.tasks import LegacyFairseqTask, register_task
 
 from . import FairseqTask, register_task
@@ -143,8 +145,8 @@ class SentencePredictionTask(LegacyFairseqTask):
         #                    help='filename of self-training model checkpoint')
         #parser.add_argument('--st-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
         #                    help='path to self-training model data directory')
-        #parser.add_argument('--threshold', default=None, type=float,
-        #                    help='min probability for self-training prediction')
+        parser.add_argument('--threshold', default=None, type=float,
+                            help='min probability for self-training prediction')
 
         # noisy student arguments
         parser.add_argument('--unlabelled-data', default=None,
@@ -202,14 +204,14 @@ class SentencePredictionTask(LegacyFairseqTask):
 
         if (self.args.augment == 'reconstruct' or self.args.unlabelled_augment == 'reconstruct') and not self.only_eval:
             print(self.args.recon_model_path)
-            self.recon_model = load_model_ensemble([self.args.recon_model_path])[0][0]
+            self.recon_model = checkpoint_utils.load_model_ensemble([self.args.recon_model_path])[0][0]
             self.recon_model.eval()
             self.recon_model.cuda()
 
             self.comp_model=None
             print(self.args.comp_model_path)
             if self.args.comp_model_path:
-                self.comp_model = load_model_ensemble([self.args.comp_model_path])[0][0]
+                self.comp_model = checkpoint_utils.load_model_ensemble([self.args.comp_model_path])[0][0]
                 self.comp_model.eval()
                 self.comp_model.cuda()
 
@@ -248,14 +250,11 @@ class SentencePredictionTask(LegacyFairseqTask):
             label_dict = data_dict
         return cls(args, data_dict, label_dict)
 
-    def load_dataset(self, split, combine=False, **kwargs):
-        """Load a given dataset split (e.g., train, valid, test)."""
+    def get_path(self, type, split, data_path):
+        return os.path.join(data_path, type, split)
 
-        def get_path(key, split):
-            return os.path.join(self.args.data, key, split)
-
-        def make_dataset(key, dictionary):
-            split_path = get_path(key, split)
+    def make_dataset(self, type, dictionary, split, data_path, combine):
+        split_path = self.get_path(type, split, data_path)
 
         dataset = data_utils.load_indexed_dataset(
             split_path,

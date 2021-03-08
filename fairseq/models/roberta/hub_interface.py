@@ -33,7 +33,6 @@ class RobertaHubInterface(nn.Module):
     def device(self):
         return self._float_tensor.device
 
-<<<<<<< HEAD
     def masked_encode(self,
                sentence: str,
                *addl_sentences,

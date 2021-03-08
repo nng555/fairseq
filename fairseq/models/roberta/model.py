@@ -189,6 +189,7 @@ class RobertaModel(FairseqEncoderModel):
         src_tokens,
         features_only=False,
         return_all_hiddens=False,
+        return_masked=False,
         classification_head_name=None,
         **kwargs
     ):
@@ -456,6 +457,7 @@ class RobertaEncoder(FairseqEncoder):
         src_tokens,
         features_only=False,
         return_all_hiddens=False,
+        return_masked=False,
         masked_tokens=None,
         **unused
     ):
