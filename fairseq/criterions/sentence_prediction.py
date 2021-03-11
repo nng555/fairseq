@@ -80,7 +80,7 @@ class SentencePredictionCriterion(FairseqCriterion):
         if self.st_model:
             with torch.no_grad():
                 st_logits, _  = self.st_model(
-                    **sample['net_input'],
+                    **sample['original_input'],
                     features_only=True,
                     classification_head_name=self.classification_head_name,
                 )
@@ -160,6 +160,8 @@ class SentencePredictionCriterion(FairseqCriterion):
             logging_output.update(
                 ncorrect=(preds == targets).sum().item()
             )
+
+        return loss, sample_size, logging_output
 
 
     @staticmethod

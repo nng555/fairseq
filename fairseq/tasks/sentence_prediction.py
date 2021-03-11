@@ -5,6 +5,7 @@
 
 import logging
 import os
+import torch
 
 import numpy as np
 from fairseq import utils
@@ -127,7 +128,8 @@ class SentencePredictionTask(LegacyFairseqTask):
         #                    help='filename of reconstruction model checkpoint')
         #parser.add_argument('--recon-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
         #                    help='path to reconstruction model data directory')
-        parser.add_argument('--comp-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        #parser.add_argument('--comp-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        parser.add_argument('--comp-model-path', default=None,
                             help='path to comparison model directory')
         #parser.add_argument('--comp-model-file', default=None,
         #                    help='filename of comparison model checkpoint')
@@ -205,6 +207,7 @@ class SentencePredictionTask(LegacyFairseqTask):
         if (self.args.augment == 'reconstruct' or self.args.unlabelled_augment == 'reconstruct') and not self.only_eval:
             print(self.args.recon_model_path)
             self.recon_model = checkpoint_utils.load_model_ensemble([self.args.recon_model_path])[0][0]
+            self.recon_model.register_buffer("_float_tensor", torch.tensor([0], dtype=torch.float))
             self.recon_model.eval()
             self.recon_model.cuda()
 
@@ -212,6 +215,7 @@ class SentencePredictionTask(LegacyFairseqTask):
             print(self.args.comp_model_path)
             if self.args.comp_model_path:
                 self.comp_model = checkpoint_utils.load_model_ensemble([self.args.comp_model_path])[0][0]
+                self.comp_model.register_buffer("_float_tensor", torch.tensor([0], dtype=torch.float))
                 self.comp_model.eval()
                 self.comp_model.cuda()
 
@@ -266,6 +270,8 @@ class SentencePredictionTask(LegacyFairseqTask):
 
 
     def build_dataset(self, input0, input1, split, augment, keep_original):
+
+        src_mask = None
 
         # create masked input and targets
         mask_whole_words = get_whole_word_mask(self.args, self.source_dictionary) \
@@ -391,11 +397,13 @@ class SentencePredictionTask(LegacyFairseqTask):
                     self._max_positions,
                     self.args.seed,
                 )
-                src_tokens = ConcatDataset([src_tokens, src_mask])
-            else:
-                src_tokens = src_mask
+                src_mask = ConcatDataset([src_tokens, src_mask])
 
-        return src_tokens
+        if not src_mask:
+            src_mask = src_tokens
+
+        # return masked tokens if reconstructed, as well as the original tokens
+        return src_mask, src_tokens
 
     def build_label_dataset(self, data_path, split, combine=False):
         label_path = "{0}.label".format(self.get_path('label', split, data_path))
@@ -437,13 +445,13 @@ class SentencePredictionTask(LegacyFairseqTask):
         input0 = self.make_dataset('input0', self.source_dictionary, split, self.args.data, combine)
         assert input0 is not None, 'could not find dataset: {}'.format(self.get_path(type, split, self.args.data))
         input1 = self.make_dataset('input1', self.source_dictionary, split, self.args.data, combine)
-        src_tokens = self.build_dataset(input0, input1, split, self.args.augment, self.args.keep_original)
+        src_tokens, src_orig = self.build_dataset(input0, input1, split, self.args.augment, self.args.keep_original)
 
         if self.args.unlabelled_data and split == 'train':
             unlabelled0 = self.make_dataset('input0', self.source_dictionary, split, self.args.unlabelled_data, combine)
             assert unlabelled0 is not None, 'could not find dataset: {}'.format(self.get_path(type, split, self.args.unlabelled_data))
             unlabelled1 = self.make_dataset('input1', self.source_dictionary, split, self.args.unlabelled_data, combine)
-            unlabelled_tokens = self.build_dataset(unlabelled0, unlabelled1, split, self.args.unlabelled_augment, False)
+            unlabelled_tokens, unlabelled_orig = self.build_dataset(unlabelled0, unlabelled1, split, self.args.unlabelled_augment, False)
             src_tokens = ConcatDataset([src_tokens, unlabelled_tokens])
 
         if self.args.num_teachers and split == 'train':
@@ -468,6 +476,13 @@ class SentencePredictionTask(LegacyFairseqTask):
                     pad_idx=self.source_dictionary.pad(),
                 ),
                 "src_lengths": NumelDataset(src_tokens, reduce=False),
+            },
+            "original_input": {
+                "src_tokens": RightPadDataset(
+                    src_orig,
+                    pad_idx=self.source_dictionary.pad(),
+                ),
+                "src_lengths": NumelDataset(src_orig, reduce=False),
             },
             "nsentences": NumSamplesDataset(),
             "ntokens": NumelDataset(src_tokens, reduce=True),

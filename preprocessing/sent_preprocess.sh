@@ -98,18 +98,18 @@ for SPLIT in $SPLITS; do
 done
 
 for file in $FILES; do
-  if [ ! -d "${DATA_FOLDER}/${GENRE}/${AUG}/bin/$file" ]; then
+  if [ ! -d "${DATA_FOLDER}/${GENRE}/${AUG}/class-bin/$file" ]; then
     fairseq-preprocess \
       --only-source \
       --trainpref "$DATA_FOLDER/$GENRE/$AUG/train.$file" \
       --validpref "$DATA_FOLDER/$GENRE/$AUG/valid.$file" \
       --testpref "$DATA_FOLDER/$GENRE/$AUG/test.$file" \
-      --destdir "$DATA_FOLDER/$GENRE/$AUG/bin/$file" \
+      --destdir "$DATA_FOLDER/$GENRE/$AUG/class-bin/$file" \
       --workers 12 \
       --srcdict dict.txt;
   fi
 done
-if [ ! -d "${DATA_FOLDER}/${GENRE}/$AUG/bin/label" ]; then
+if [ ! -d "${DATA_FOLDER}/${GENRE}/$AUG/class-bin/label" ]; then
   if [[ "$AUG" == *"soft"* ]] || [[ "$AUG" == *"ord"* ]]; then
     tname="soft"
     dname="soft"
@@ -127,7 +127,7 @@ if [ ! -d "${DATA_FOLDER}/${GENRE}/$AUG/bin/label" ]; then
       if [ ! -e $a_folder/$AUG/train.soft.label ]; then
         cat $a_folder/$AUG/train.soft.label_* > $a_folder/$AUG/train.soft.label
       fi
-      tname="gen"
+      tname="raw"
       dname="raw"
     fi
   elif [[ "$AUG" == *"pate"* ]]; then
@@ -143,10 +143,10 @@ if [ ! -d "${DATA_FOLDER}/${GENRE}/$AUG/bin/label" ]; then
     --trainpref "$DATA_FOLDER/$GENRE/$AUG/train.$tname.label" \
     --validpref "$DATA_FOLDER/$GENRE/$AUG/valid.$dname.label" \
     --testpref "$DATA_FOLDER/$GENRE/$AUG/test.$dname.label" \
-    --destdir "$DATA_FOLDER/$GENRE/$AUG/bin/label" \
+    --destdir "$DATA_FOLDER/$GENRE/$AUG/class-bin/label" \
     --workers 12 \
     --srcdict "$DATA_FOLDER/label.dict.txt";
-  cp $DATA_FOLDER/$GENRE/$AUG/train.soft.label $DATA_FOLDER/$GENRE/$AUG/bin/label/train.label
-  cp $DATA_FOLDER/$GENRE/orig/valid.soft.label $DATA_FOLDER/$GENRE/$AUG/bin/label/valid.label
+  cp $DATA_FOLDER/$GENRE/$AUG/train.soft.label $DATA_FOLDER/$GENRE/$AUG/class-bin/label/train.label
+  cp $DATA_FOLDER/$GENRE/orig/valid.soft.label $DATA_FOLDER/$GENRE/$AUG/class-bin/label/valid.label
 fi
 

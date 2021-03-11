@@ -22,7 +22,11 @@ def launch(cfg: DictConfig):
         raise Exception('task %s data path not found'.format(cfg.data.task))
 
     d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
-    bin_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin.name, 'bin')
+    if hasattr(cfg.data.bin, 'dir'):
+        bin_name = cfg.data.bin.dir
+    else:
+        bin_name = 'bin'
+    bin_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin.name, bin_name)
     j_dir = slurm_utils.get_j_dir(cfg)
 
     if os.path.exists(os.path.join(j_dir, os.environ['SLURM_JOB_ID'], 'checkpoint_last.pt')):

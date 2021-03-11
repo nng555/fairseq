@@ -6,7 +6,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml', strict=False)
+@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
 def display_results(cfg: DictConfig):
     res_string = ""
     std_string = ""
@@ -25,7 +25,7 @@ def display_results(cfg: DictConfig):
     if cfg.gen.seed is not None:
         cfg.display.dir.name[3] = '_'.join(cfg.display.dir.name[3].split('_')[:-1])
 
-    for fdset in cfg.display.fdset:
+    for fdset in cfg.data.display.fdset:
         cfg.display.dir.name[2] = fdset
         for noise in empty_to_list(cfg.display.noise):
             cfg.display.dir.name[1] = noise
@@ -33,9 +33,9 @@ def display_results(cfg: DictConfig):
             std_row = []
             var_row = []
 
-            for tdset in cfg.display.tdset:
+            for tdset in cfg.data.display.tdset:
                 cfg.display.dir.name[5] = tdset
-                cfg.data.sdset=tdset
+                #cfg.data.sdset=tdset
                 seed_res = []
 
                 for seed in empty_to_list(cfg.display.seed):
@@ -87,7 +87,7 @@ def display_results(cfg: DictConfig):
                     std_row.append(0)
                     var_row.append(0)
             res_string = res_string + '\t'.join([str(round(val, 4)) for val in row]) + '\n'
-            ood_std = np.sqrt(np.average([v for i,v in enumerate(var_row) if i != cfg.display.fdset.index(fdset)]))
+            ood_std = np.sqrt(np.average([v for i,v in enumerate(var_row) if i != cfg.data.display.fdset.index(fdset)]))
             std_string = std_string + '\t'.join([str(val) for val in std_row] + [str(ood_std)]) + '\n'
         res_string = res_string + '\n'
         std_string = std_string + '\n'

@@ -1,3 +1,0 @@
-slurm:
-  account: deadline
-  qos: deadline

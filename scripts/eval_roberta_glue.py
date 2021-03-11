@@ -11,9 +11,9 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
-def evaluate(cfg: DictConfig):
-    #slurm_utils.symlink_hydra(cfg, os.getcwd())
+@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
+def evaluate_model(cfg: DictConfig):
+    slurm_utils.symlink_hydra(cfg, os.getcwd())
 
     if cfg.data.task in ['nli']:
         base_path = '/scratch/ssd001/datasets/'
@@ -24,14 +24,17 @@ def evaluate(cfg: DictConfig):
 
     model_data_path = os.path.join(base_path, cfg.data.task, cfg.eval.model.data)
     eval_data_path = os.path.join(base_path, cfg.data.task, cfg.eval.data)
-    model_path = os.path.join('/h/nng/slurm', cfg.eval.model.date, slurm_utils.resolve_name(cfg.eval.model.name))
-    if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
-        for f in sorted(os.listdir(model_path))[::-1]:
-            if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
-                model_path = os.path.join(model_path, f)
-                break
+    if cfg.eval.model.date:
+        model_path = os.path.join('/h/nng/slurm', cfg.eval.model.date, slurm_utils.resolve_name(cfg.eval.model.name))
+        if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
+            for f in sorted(os.listdir(model_path))[::-1]:
+                if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
+                    model_path = os.path.join(model_path, f)
+                    break
+    else:
+        model_path = os.path.join('/checkpoint/nng/keep', slurm_utils.resolve_name(cfg.eval.model.name))
 
-    dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin, 'bin')
+    dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin.name, 'bin')
 
     ckpt_file = 'checkpoint_best.pt'
 
@@ -65,34 +68,6 @@ def evaluate(cfg: DictConfig):
     model.eval()
 
     nval, nsamples = 0, 0
-    '''
-    if cfg.eval.split == 'valid':
-        if cfg.data.name == 'mnli':
-            if cfg.data.tdset in ['fiction', 'government', 'slate', 'telephone', 'travel']:
-                dev_name = 'dev_matched'
-            elif cfg.data.tdset == 'processed':
-                dev_name = 'dev'
-            else:
-                dev_name = 'dev_mismatched'
-        elif cfg.data.name == 'anli':
-            dev_name = 'dev'
-        elif cfg.data.name == 'aws':
-            dev_name = 'valid'
-        else:
-            dev_name = 'valid'
-    elif cfg.eval.split == 'test':
-        if cfg.data.name == 'mnli':
-            if cfg.data.tdset in ['fiction', 'government', 'slate', 'telephone', 'travel']:
-                dev_name = 'test_matched'
-            elif cfg.data.tdset == 'processed':
-                dev_name = 'test'
-            else:
-                dev_name = 'test_mismatched'
-        else:
-            dev_name = cfg.eval.split
-    else:
-        dev_name = cfg.eval.split
-    '''
 
     with open(os.path.join(eval_data_path, cfg.data.tdset, 'orig', cfg.eval.split + '.raw.input0')) as input0f, \
             open(os.path.join(eval_data_path, cfg.data.tdset, 'orig', cfg.eval.split + '.raw.label')) as targetf:
@@ -101,7 +76,7 @@ def evaluate(cfg: DictConfig):
         target = targetf.readlines()
 
         if cfg.data.task in ['nli']:
-            input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin, cfg.eval.split + '.raw.input1'))
+            input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
             input1 = input1f.readlines()
             files = [input0, input1, target]
         else:
@@ -147,4 +122,4 @@ def evaluate(cfg: DictConfig):
         print(cfg.data.tdset + ' | Accuracy: ', float(nval)/float(nsamples))
 
 if __name__ == '__main__':
-    evaluate()
+    evaluate_model()

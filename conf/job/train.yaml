@@ -1,4 +1,0 @@
-slurm:
-  gres: gpu:8
-
-wait: true

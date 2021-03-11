@@ -1,0 +1,3 @@
+# @package _group_
+ddp_backend: no_c10d
+find_unused_parameters: True

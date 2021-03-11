@@ -1,7 +1,0 @@
-eval:
-  mask_prob: 0.0
-  random_token_prob: 0.0
-  leave_unmasked_prob: 0.0
-  input0_mask: false
-  input1_mask: false
-  reconstruct: false

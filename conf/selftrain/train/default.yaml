@@ -1,0 +1,55 @@
+# @package _group_ 
+adam_betas: (0.9, 0.98)
+adam_eps: 1.0e-06
+arch: ${fairseq.model._name}
+augment: ~
+best_checkpoint_metric: accuracy
+clip_norm: 0.0
+criterion: sentence_prediction
+data_seed: ~
+ddp_backend: no_c10d
+dropout: 0.1
+find_unused_parameters: true
+fp16: true
+fp16_init_scale: 4
+fp16_scale_window: 128
+init_token: 0
+input0_mask: false
+input1_mask: false
+keep_interval_updates: 1
+keep_last_epochs: 1
+layer_seed: ~
+leave_unmasked_prob: 0.0
+log_interval: 10
+lr: 1.0e-05
+lr_scheduler: polynomial_decay
+mask_prob: ~
+max_epoch: 10
+max_positions: 512
+max_sentences: 8
+max_source_positions: 512
+max_tokens: 4400
+maximize_best_checkpoint_metric: true
+num_classes: ${data.bin.num_classes}
+optimizer: adam
+ordinal: false
+random_token_prob: 0.0
+recon_model_path: ~
+regression_target: false
+required_batch_size_multiple: 1
+reset_dataloader: ~
+reset_meters: ~
+reset_optimizer: ~
+restore_file: ~
+save_interval_updates: 1000
+seed: ~
+separator_token: 2
+skip_invalid_size_inputs_valid_test: true
+soft_labels: false
+st_model_path: ~
+task: sentence_prediction
+threshold_loss_scale: 1
+total_num_update: eval:int((${data.bin.num_sents}/(int("${slurm.gres}"[-1]) * ${train.max_sentences} * ${train.update_freq})) * 11)
+update_freq: 1
+warmup_updates: eval:int((${data.bin.num_sents}/(int("${slurm.gres}"[-1]) * ${train.max_sentences} * ${train.update_freq})) * 0.6)
+

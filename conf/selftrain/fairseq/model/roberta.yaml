@@ -1,0 +1,6 @@
+# @package _group_
+_name: roberta_base
+dropout: 0.1
+attention_dropout: 0.1
+max_positions: 512
+layer_seed: ~

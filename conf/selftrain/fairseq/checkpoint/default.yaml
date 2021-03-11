@@ -1,0 +1,11 @@
+# @package _group_
+save_dir: ~ # set this dynamically
+restore_file: ~ # set this dynamically
+reset_dataloader: ~
+reset_lr_scheduler: ~
+reset_meters: ~
+reset_optimizer: ~
+save_interval_updates: 1000
+keep_interval_updates: 1
+best_checkpoint_metric: accuracy
+maximize_best_checkpoint_metric: True

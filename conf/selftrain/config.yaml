@@ -1,0 +1,124 @@
+defaults:
+  - fairseq/checkpoint: default
+  - fairseq/common: default
+    #- fairseq/criterion: sentence_prediction
+  - fairseq/dataset: default
+  - fairseq/distributed_training: default
+  - fairseq/model: roberta
+  - fairseq/optimization: default
+    #- fairseq/task: sentence_prediction
+  - data: aws
+  - data/bin: orig
+  - slurm: default
+  - train: default
+  - hydra/launcher: slurm
+
+hydra:
+  run:
+    dir: /h/nng/hydra/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S-%N}
+  sweep:
+    dir: /h/nng/hydra/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S-%N}
+    subdir: ${hydra.job.num}
+
+venv: robust
+wait: false
+extra: ~
+next_day: ~
+max_running: -1
+max_pending: -1
+
+eval:
+  leave_unmasked_prob: ~
+  mask_prob: ~
+  random_token_prob: ~
+  reconstruct: false
+  noisy: false
+  num_samples: 0
+  weighted: false
+  split: valid
+  data: ${data.name}
+  model: 
+    date: ~
+    data: ${data.name}
+    name: 
+      - launch_train
+      - ${data.fdset}
+      - ${data.bin.name}
+      - ${train.seed}
+      - ${train.augment}
+      - ${train.mask_prob}
+      - ${extra}
+    bin: ${data.bin.name}
+
+display:
+  noise: ~
+  dir:
+    date: ~
+    name: 
+      - eval_roberta_glue
+      - ~
+      - ~
+      - ${data.bin.name}
+      - ~
+      - ~
+      - ~
+
+gen:
+  overwrite: false
+  gamma: ~ # PATE aggregation noise parameter
+  batch: 6
+  depth: 1
+  dset: ${data.bin}
+  in_dset: ${gen.model.bin}
+  label_samples: 1
+  leave_unmasked_prob: 0.1
+  mask_prob: 0.15
+  max_tries: 1000
+  metropolis: false
+  num_samples: 5
+  num_shards: 8
+  split: train
+  print_prob: false
+  progressive: false
+  random_token_prob: 0.1
+  shard: ~
+  sort: false
+  topk: -1
+  comp: ~
+  comp_file:
+    date: ~
+    rdset: ${data.fdset}
+    rseed: ~
+    bin: unlabelled
+    name:
+      - launch_train
+      - ${gen.comp_file.rdset}
+      - ${gen.comp_file.bin}
+      - ${gen.comp_file.rseed}
+  recon: base
+  recon_file:
+    date: ~
+    rdset: ${data.fdset}
+    rseed: ~
+    bin: unlabelled
+    name:
+      - launch_train
+      - ${gen.recon_file.rdset}
+      - ${gen.recon_file.bin}
+      - ${gen.recon_file.rseed}
+  seed: ~
+  model:
+    date: ~
+    fdset: ${data.fdset}
+    name: 
+      - launch_train
+      - ${gen.model.fdset}
+      - ${gen.model.bin}
+      - ${gen.model.seed}
+      - ${train.mask_prob}
+      - ${train.epoch_mask_rate}
+      - ${train.max_mask_rate}
+      - ${extra}
+    bin: ~
+    seed: ~
+

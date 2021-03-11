@@ -1,0 +1,5 @@
+# @package _group_
+max_epoch: 10
+clip_norm: 0.0
+update_freq: 1
+lr: 1.0e-05

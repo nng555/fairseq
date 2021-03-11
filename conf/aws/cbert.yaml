@@ -1,6 +1,0 @@
-data:
-  bin: cbert
-
-train:
-  warmup_updates: 400
-  max_epoch: 10

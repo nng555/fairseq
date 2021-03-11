@@ -58,6 +58,10 @@ class ReconstructTokensDataset(BaseWrapperDataset):
         self.depth = depth
         self.epoch = 0
 
+    @property
+    def device(self):
+        return self.recon_model._float_tensor.device
+
     def set_epoch(self, epoch, **unused):
         super().set_epoch(epoch)
         if hasattr(self.target_dataset, 'set_epoch'):
@@ -86,7 +90,7 @@ class ReconstructTokensDataset(BaseWrapperDataset):
 
             with utils.model_eval(self.recon_model):
                 features, _ = self.recon_model(
-                    masked_tokens.long().cuda(),#.to(device=self.device),
+                    masked_tokens.long().to(device=self.device),
                     features_only=False,
                     return_all_hiddens=False,
                 )
@@ -96,7 +100,7 @@ class ReconstructTokensDataset(BaseWrapperDataset):
                 probs = probs.softmax(dim=-1)
                 with utils.model_eval(self.comp_model):
                     cfeatures, _ = self.comp_model(
-                        masked_tokens.long().cuda(),#.to(device=self.device),
+                        masked_tokens.long().to(device=self.device),
                         features_only=False,
                         return_all_hiddens=False,
                     )
