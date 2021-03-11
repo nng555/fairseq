@@ -1,8 +1,0 @@
-# @package _group_
-log_interval: 100
-seed: ~
-fp16: True
-memory_efficient_fp16: True
-fp16_init_scale: 4
-fp16_scale_window: 128
-threshold_loss_scale: 1

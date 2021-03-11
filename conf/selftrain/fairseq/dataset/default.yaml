@@ -1,6 +1,0 @@
-# @package _group_
-num_workers: ${slurm.cpus_pre_task}
-skip_invalid_size_inputs_valid_test: True
-max_tokens: 4400
-batch_size: 8
-data_seed: ~

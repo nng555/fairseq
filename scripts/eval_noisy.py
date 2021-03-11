@@ -117,7 +117,7 @@ def evaluate(cfg: DictConfig):
                 model_path = os.path.join(model_path, f)
                 break
 
-    dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin, 'bin')
+    dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin.name, 'bin')
     ckpt_file = 'checkpoint_best.pt'
 
     print(model_path)
