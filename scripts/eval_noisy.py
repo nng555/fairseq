@@ -3,6 +3,7 @@ from fairseq.models.lstm_classifier import LSTMClassifier
 from fairseq.models.fconv_classifier import FConvClassifier
 import argparse
 import os
+import json
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -43,20 +44,25 @@ def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, 
         tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
         r_model = AutoModelWithLMHead.from_pretrained("bert-base-multilingual-cased")
     elif recon == 'local':
-        r_path = os.path.join('/h/nng/slurm', recon_date, slurm_utils.resolve_name(recon_name))
-        found = False
-        for f in sorted(os.listdir(r_path))[::-1]:
-            if f == 'checkpoint_best.pt':
-                r_file = r_path
-                found = True
-                break
-            if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
-                r_file = os.path.join(r_path, f)
-                found = True
-                break
-        if not found:
-            raise Exception("Model in path {} not found".format(r_path))
+        if not recon_date:
+            r_file = os.path.join('/checkpoint/nng/keep', slurm_utils.resolve_name(recon_name))
+        else:
+            r_path = os.path.join('/h/nng/slurm', recon_date, slurm_utils.resolve_name(recon_name))
+            found = False
+            for f in sorted(os.listdir(r_path))[::-1]:
+                if f == 'checkpoint_best.pt':
+                    r_file = r_path
+                    found = True
+                    break
+                if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
+                    r_file = os.path.join(r_path, f)
+                    found = True
+                    break
+            if not found:
+                raise Exception("Model in path {} not found".format(r_path))
 
+        print(r_file)
+        print(os.path.join(d_path, recon_rdset, 'unlabelled', 'bin'))
         r_model = RobertaModel.from_pretrained(
             r_file,
             checkpoint_file = 'checkpoint_best.pt',
@@ -72,7 +78,7 @@ def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, 
         r_model.cuda()
     return r_model, r_encode
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
 def evaluate(cfg: DictConfig):
     #slurm_utils.symlink_hydra(cfg, os.getcwd())
 
@@ -98,7 +104,10 @@ def evaluate(cfg: DictConfig):
     if r_model is None or r_encode is None:
         raise Exception("Model %s not found".format(cfg.gen.recon))
 
-    s_model, s_encode = load_recon_model(cfg.gen.comp, cfg.gen.comp_file.date, cfg.gen.comp_file.name, cfg.gen.comp_file.rdset, d_path)
+    if cfg.gen.comp:
+        s_model, _ = load_recon_model(cfg.gen.comp, cfg.gen.comp_file.date, cfg.gen.comp_file.name, cfg.gen.comp_file.rdset, d_path)
+    else:
+        s_model=None
 
     if cfg.gen.recon in ['german', 'multilingual']:
         softmax_mask = np.full(len(tokenizer.vocab), False)
@@ -107,15 +116,18 @@ def evaluate(cfg: DictConfig):
             if '[unused' in k:
                 softmax_mask[v] = True
 
-    # load the model
     model_data_path = os.path.join(base_path, cfg.data.task, cfg.eval.model.data)
     eval_data_path = os.path.join(base_path, cfg.data.task, cfg.eval.data)
-    model_path = os.path.join('/h/nng/slurm', cfg.eval.model.date, slurm_utils.resolve_name(cfg.eval.model.name))
-    if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
-        for f in sorted(os.listdir(model_path))[::-1]:
-            if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
-                model_path = os.path.join(model_path, f)
-                break
+    # load the model
+    if cfg.eval.model.date:
+        model_path = os.path.join('/h/nng/slurm', cfg.eval.model.date, slurm_utils.resolve_name(cfg.eval.model.name))
+        if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
+            for f in sorted(os.listdir(model_path))[::-1]:
+                if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
+                    model_path = os.path.join(model_path, f)
+                    break
+    else:
+        model_path = os.path.join('/checkpoint/nng/keep', slurm_utils.resolve_name(cfg.eval.model.name))
 
     dict_path = os.path.join(model_data_path, cfg.data.fdset, cfg.data.bin.name, 'bin')
     ckpt_file = 'checkpoint_best.pt'
@@ -156,7 +168,6 @@ def evaluate(cfg: DictConfig):
     if not cfg.eval.leave_unmasked_prob:
         cfg.eval.leave_unmasked_prob=0.1
 
-    nval, nsamples = 0, 0
 
     with open(os.path.join(eval_data_path, cfg.data.tdset, 'orig', cfg.eval.split + '.raw.input0')) as input0f, \
             open(os.path.join(eval_data_path, cfg.data.tdset, 'orig', cfg.eval.split + '.raw.label')) as targetf:
@@ -170,6 +181,14 @@ def evaluate(cfg: DictConfig):
             files = [input0, input1, target]
         else:
             files = [input0, target]
+
+        eval_status = {'nval': 0, 'nsamples': 0}
+
+        j_dir = slurm_utils.get_j_dir(cfg)
+        status_path = os.path.join(j_dir, 'eval_status.json')
+        if os.path.exists(status_path):
+            eval_status = json.load(open(status_path))
+            files = [f[eval_status['nsamples']:] for f in files]
 
         for ex in zip(*files):
 
@@ -233,7 +252,7 @@ def evaluate(cfg: DictConfig):
                                         tokens,
                                         return_logits=(cfg.train.regression_target or cfg.train.ordinal)
                                     ).cpu().detach().numpy()[0]
-                        pred_probs.append(pred_prob)
+                        pred_probs.append(np.exp(pred_prob))
 
                     if rec_prob is not None:
                         rec_prob = torch.cat((rec_prob, rec_probn))
@@ -247,15 +266,18 @@ def evaluate(cfg: DictConfig):
                 weights = F.softmax(rec_prob, dim=0)
                 #print(F.softmax(pred_probs, dim=-1))
                 #print(weights)
-                weighted_preds = torch.sum(weights.unsqueeze(1) * pred_probs, axis=0)
+                if cfg.eval.weighted:
+                    weighted_preds = torch.sum(weights.unsqueeze(1) * pred_probs, axis=0)
+                else:
+                    weighted_preds = torch.sum(pred_probs, axis=0)
                 #print(F.softmax(weighted_preds, dim=0))
 
                 if cfg.train.regression_target:
-                    nval += (weighted_preds[0] - float(ex[-1]))**2
+                    eval_status['nval'] += (weighted_preds[0] - float(ex[-1]))**2
                 else:
                     prediction = weighted_preds.argmax()
                     prediction_label = label_fn(prediction)
-                    nval += int(prediction_label == ex[-1])
+                    eval_status['nval'] += int(prediction_label == ex[-1])
                     #print(str(nsamples) + ': ' + str(prediction_label == ex[-1]))
 
             else:
@@ -278,7 +300,7 @@ def evaluate(cfg: DictConfig):
                             ).cpu().detach().numpy()[0]
 
                 if cfg.train.regression_target:
-                    nval += (pred_prob[0] - float(ex[-1]))**2
+                    eval_status['nval'] += (pred_prob[0] - float(ex[-1]))**2
                 else:
                     if cfg.train.ordinal:
                         pred_prob = 1 / (1 + np.exp(-pred_prob))
@@ -287,10 +309,13 @@ def evaluate(cfg: DictConfig):
                     pred_prob = np.exp(pred_prob)/sum(np.exp(pred_prob))
                     #print(list(pred_prob))
                     prediction_label = label_fn(prediction)
-                    nval += int(prediction_label == ex[-1])
+                    eval_status['nval'] += int(prediction_label == ex[-1])
 
-            nsamples += 1
-        print(cfg.data.tdset + ' | Accuracy: ', float(nval)/float(nsamples))
+            eval_status['nsamples'] += 1
+            with open(status_path, 'w') as statusf:
+                json.dump(eval_status, statusf)
+
+        print(cfg.data.tdset + ' | Accuracy: ', float(eval_status['nval'])/float(eval_status['nsamples']))
 
 if __name__ == '__main__':
     evaluate()

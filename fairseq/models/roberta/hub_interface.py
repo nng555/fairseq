@@ -311,7 +311,7 @@ class RobertaHubInterface(nn.Module):
         return topk_filled_outputs
 
 
-    def reconstruction_prob_tok(self, masked_tokens, target_tokens, reconstruct=False, source_model=None, topk=1):
+    def reconstruction_prob_tok(self, masked_tokens, target_tokens, reconstruct=False, source_model=None, topk=1, lamb=1):
 
         single = False
 
@@ -345,7 +345,7 @@ class RobertaHubInterface(nn.Module):
 
         if source_model:
             # normalize before subtracting
-            probs = logits.softmax(dim=-1)
+            probs = probs.softmax(dim=-1)
             orig_probs = probs.detach().clone()
             with utils.model_eval(source_model):
                 s_features, _ = source_model.model(
@@ -355,10 +355,12 @@ class RobertaHubInterface(nn.Module):
                 )
                 s_logits = s_features[masked_index]
                 s_probs = s_logits.softmax(dim=-1)
-                probs = probs - s_probs
-                probs -= torch.min(probs, dim=-1).values.unsqueeze(-1)
+                prob_diffs = probs - s_probs
+                prob_mask = (prob_diffs > 0).float()
+                prob_mask[prob_mask != 1] = torch.exp(lamb * prob_diffs[prob_mask != 1])
+                probs = probs * prob_mask
 
-        if self.comp_model:
+        if source_model:
             negate = 0
         else:
             negate = float('-inf')
