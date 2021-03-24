@@ -185,19 +185,22 @@ def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, 
         tokenizer = AutoTokenizer.from_pretrained("bert-base-multilingual-cased")
         r_model = AutoModelWithLMHead.from_pretrained("bert-base-multilingual-cased")
     elif recon == 'local':
-        r_path = os.path.join('/h/nng/slurm', recon_date, slurm_utils.resolve_name(recon_name))
-        found = False
-        for f in sorted(os.listdir(r_path))[::-1]:
-            if f == 'checkpoint_best.pt':
-                r_file = r_path
-                found = True
-                break
-            if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
-                r_file = os.path.join(r_path, f)
-                found = True
-                break
-        if not found:
-            raise Exception("Model in path {} not found".format(r_path))
+        if not recon_date:
+            r_file = os.path.join('/checkpoint/nng/keep', slurm_utils.resolve_name(recon_name))
+        else:
+            r_path = os.path.join('/h/nng/slurm', recon_date, slurm_utils.resolve_name(recon_name))
+            found = False
+            for f in sorted(os.listdir(r_path))[::-1]:
+                if f == 'checkpoint_best.pt':
+                    r_file = r_path
+                    found = True
+                    break
+                if os.path.exists(os.path.join(r_path, f, 'checkpoint_best.pt')):
+                    r_file = os.path.join(r_path, f)
+                    found = True
+                    break
+            if not found:
+                raise Exception("Model in path {} not found".format(r_path))
 
         r_model = RobertaModel.from_pretrained(
             r_file,
@@ -214,7 +217,7 @@ def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, 
         r_model.cuda()
     return r_model, r_encode
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
 def gen_neighborhood(cfg: DictConfig):
     #slurm_utils.symlink_hydra(cfg, os.getcwd())
     shard = cfg.gen.shard
@@ -266,6 +269,7 @@ def gen_neighborhood(cfg: DictConfig):
     ext0_path = os.path.join(f_path, '.'.join([data_split, split, ext0]))
     ext1_path = os.path.join(f_path, '.'.join([data_split, split, ext1]))
     extl_path = os.path.join(f_path, '.'.join([data_split, 'raw', extl]))
+    extid_path = os.path.join(f_path, '.'.join([data_split, 'id']))
 
     if os.path.exists(ext0_path):
         s0_file = [[s.strip()] for s in open(ext0_path, 'r').readlines()]
@@ -285,16 +289,38 @@ def gen_neighborhood(cfg: DictConfig):
     else:
         l_file = [s.strip() for s in open(extl_path + '_' + str(shard), 'r').readlines()]
 
+
+    if os.path.exists(extid_path):
+        id_file = [s.strip() for s in open(extid_path, 'r').readlines()]
+        shard_start = (int(len(l_file)/cfg.gen.num_shards) + 1) * shard
+        shard_end = (int(len(l_file)/cfg.gen.num_shards) + 1) * (shard + 1)
+        id_file = id_file[shard_start:shard_end]
+    else:
+        extid_path = extid_path + '_' + str(shard)
+        if os.path.exists(extid_path):
+            id_file = [s.strip() for s in open(extid_path, 'r').readlines()]
+        else:
+            id_file = [i for i in range(len(open(ext0_path, 'r').readlines()))]
+
+
     if not os.path.exists(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset)):
         os.makedirs(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset))
 
-    s0_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0 + '_' + str(shard))
+    s0_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0)
+    l_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.imp.' + extl)
+    p_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.prob')
+    id_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.id')
     if os.path.exists(s0_rec_filename) and not cfg.gen.overwrite:
         raise Exception("File already exists")
-    s0_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0 + '_' + str(shard)), 'w')
-    l_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.imp.' + extl + '_' + str(shard)), 'w')
-    p_rec_file = open(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.prob_' + str(shard)), 'w')
-
+    if cfg.gen.num_shards != 1:
+        s0_rec_filename += '_' + str(shard)
+        l_rec_filename += '_' + str(shard)
+        p_rec_filename += '_' + str(shard)
+        id_rec_filename += '_' + str(shard)
+    s0_rec_file = open(s0_rec_filename, 'w')
+    l_rec_file = open(s0_rec_filename, 'w')
+    p_rec_file = open(s0_rec_filename, 'w')
+    id_rec_file = open(s0_rec_filename, 'w')
 
     # load a second sentence input if task is nli
     if cfg.data.task in ['nli']:
@@ -311,6 +337,7 @@ def gen_neighborhood(cfg: DictConfig):
     sents = []
     probs = []
     l = []
+    sent_ids = []
 
     # number sentences generated
     num_gen = []
@@ -350,6 +377,7 @@ def gen_neighborhood(cfg: DictConfig):
             else:
                 sents.append(list(zip(s0_file[next_sent])))
             l.append(l_file[next_sent])
+            sent_ids.append(id_file[next_sent])
             probs.append([])
 
             # set initial metropolis probabilities
@@ -371,6 +399,7 @@ def gen_neighborhood(cfg: DictConfig):
                     probs.pop(i)
                 gen_index.pop(i)
                 label = l.pop(i)
+                sent_id = sent_ids.pop(i)
                 if cfg.gen.depth == 1:
                     skip = 1
                 else:
@@ -384,6 +413,7 @@ def gen_neighborhood(cfg: DictConfig):
                     s0_sent = repr(sg[0])[1:-1]
                     if cfg.gen.print_prob:
                         p_rec_file.write(str(prob) + '\n')
+                    id_rec_file.write(str(sent_id) + '\n')
                     s0_rec_file.write(s0_sent + '\n')
                     if cfg.data.task in ['nli']:
                         s1_sent = repr(sg[1])[1:-1]
@@ -416,6 +446,7 @@ def gen_neighborhood(cfg: DictConfig):
                     if cfg.gen.metropolis:
                         probs.append(get_log_p(' '.join(sents[-1][0])))
                     l.append(l_file[next_sent])
+                    sent_ids.append(id_file[next_sent])
                     probs.append([])
                     num_gen.append(0)
                     num_tries.append(0)
@@ -494,7 +525,7 @@ def gen_neighborhood(cfg: DictConfig):
             print(sents[i])
             print('==========================', flush=True)
             '''
-            if s_rec not in sents[i] and '' not in s_rec:
+            if not cfg.gen.deduplicate or (s_rec not in sents[i] and '' not in s_rec):
                 '''
                 if cfg.gen.metropolis:
                     padding_mask = rec[i] != r_encode.task.source_dictionary.pad()

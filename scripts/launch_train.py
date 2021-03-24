@@ -14,7 +14,7 @@ def launch(cfg: DictConfig):
 
     os.environ['NCCL_DEBUG'] = 'INFO'
 
-    if cfg.data.task in ['nli']:
+    if cfg.data.task in ['nli', 'nng_dataset']:
         base_path = '/scratch/ssd001/datasets/'
     elif cfg.data.task in ['sentiment', 'translation', 'robust']:
         base_path = '/h/nng/data'

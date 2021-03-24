@@ -18,12 +18,14 @@ def gen_neighborhood_labels(cfg: DictConfig):
     shard = cfg.gen.shard
     slurm_utils.symlink_hydra(cfg, os.getcwd())
 
-    model_path = os.path.join('/h/nng/slurm', cfg.gen.model.date, slurm_utils.resolve_name(cfg.gen.model.name))
-    if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
-        for f in sorted(os.listdir(model_path))[::-1]:
-            if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
-                model_path = os.path.join(model_path, f)
-                break
+    model_path = os.path.join('/checkpoint/nng/keep', slurm_utils.resolve_name(cfg.gen.model.name))
+    if not os.path.exists(model_path):
+        model_path = os.path.join('/h/nng/slurm', cfg.gen.model.date, slurm_utils.resolve_name(cfg.gen.model.name))
+        if not os.path.exists(os.path.join(model_path, 'checkpoint_best.pt')):
+            for f in sorted(os.listdir(model_path))[::-1]:
+                if os.path.exists(os.path.join(model_path, f, 'checkpoint_best.pt')):
+                    model_path = os.path.join(model_path, f)
+                    break
 
     if cfg.data.task in ['nli']:
         base_path = '/scratch/ssd002/datasets/'
