@@ -141,7 +141,7 @@ class SentencePredictionTask(LegacyFairseqTask):
         # self-training arguments
         #parser.add_argument('--self-train', default=False, action='store_true',
         #                    help='whether to self-train or not')
-        parser.add_argument('--st-model-path', default='/scratch/hdd001/home/nng/roberta/roberta.base',
+        parser.add_argument('--st-model-path', default=None,
                             help='path to self-training model directory')
         #parser.add_argument('--st-model-file', default='model.pt',
         #                    help='filename of self-training model checkpoint')

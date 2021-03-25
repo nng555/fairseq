@@ -43,12 +43,17 @@ def display_results(cfg: DictConfig):
 
                     for gen_seed in empty_to_list(cfg.gen.seed):
                         cfg.display.dir.name[4] = gen_seed
+
+                        for mask_noise in empty_to_list(cfg.display.mask_prob):
+                            cfg.train.mask_prob = mask_noise
                         #print(cfg.display.dir.name)
                         #print(slurm_utils.resolve_name(cfg.display.dir.name))
-                        display_dir = os.path.join('/h/nng/slurm', cfg.display.dir.date, slurm_utils.resolve_name(cfg.display.dir.name), 'log')
+                        display_dir = os.path.join('/h/nng/slurm', cfg.display.dir.date, slurm_utils.resolve_name(cfg.display.dir.name))
                         if not os.path.exists(display_dir):
                             #print("{} does not exist!".format(display_dir))
                             continue
+
+
                         fnames = sorted(os.listdir(display_dir))[::-1]
                         for fname in fnames:
                             if 'err' in fname:

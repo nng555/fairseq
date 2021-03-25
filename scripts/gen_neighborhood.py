@@ -318,9 +318,9 @@ def gen_neighborhood(cfg: DictConfig):
         p_rec_filename += '_' + str(shard)
         id_rec_filename += '_' + str(shard)
     s0_rec_file = open(s0_rec_filename, 'w')
-    l_rec_file = open(s0_rec_filename, 'w')
-    p_rec_file = open(s0_rec_filename, 'w')
-    id_rec_file = open(s0_rec_filename, 'w')
+    l_rec_file = open(l_rec_filename, 'w')
+    p_rec_file = open(p_rec_filename, 'w')
+    id_rec_file = open(id_rec_filename, 'w')
 
     # load a second sentence input if task is nli
     if cfg.data.task in ['nli']:

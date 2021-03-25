@@ -3,6 +3,7 @@ from fairseq.models.lstm_classifier import LSTMClassifier
 from fairseq.models.fconv_classifier import FConvClassifier
 import argparse
 import json
+import math
 import os
 import numpy as np
 import torch
@@ -100,14 +101,17 @@ def evaluate_model(cfg: DictConfig):
             res, targets, nsamples = eval_status
             files = [f[nsamples::] for f in files]
 
-        batch_num = int(len(files[0])/cfg.eval.batch) + 1
+        batch_num = math.ceil(len(files[0])/cfg.eval.batch)
         for b in range(batch_num):
-            if b * cfg.gen.batch >= len(files[0]):
-                break
 
             bstart = b * cfg.eval.batch
             bend = (b+1) * cfg.eval.batch
+
+            if bstart >= len(files[0]):
+                break
+
             print("Processing {} to {}".format(str(bstart), str(bend)), flush=True)
+
 
             if cfg.data.task in ['nli']:
                 toks = [model.encode(s1.strip(), s2.strip()) for s1, s2 in zip(input0[bstart:bend], input1[bstart:bend])]
