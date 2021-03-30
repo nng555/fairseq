@@ -11,7 +11,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def class_noise(cfg: DictConfig):
 
     # get data path

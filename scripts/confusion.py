@@ -7,7 +7,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml', strict=False)
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def confusion(cfg: DictConfig):
 
     labels = ['entailment', 'neutral', 'contradiction']

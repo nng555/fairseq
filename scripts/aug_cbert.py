@@ -7,7 +7,7 @@ from hydra import slurm_utils
 
 log = logging.getLogger(__name__)
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml', strict=False)
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def launch(cfg: DictConfig):
     os.environ['NCCL_DEBUG'] = 'INFO'
 

@@ -7,7 +7,7 @@ from hydra import slurm_utils
 
 log = logging.getLogger(__name__)
 
-@hydra.main(config_path='/h/nng/conf/selftrain/config.yaml')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ/config.yaml'))
 def launch(cfg: DictConfig):
     #print(OmegaConf.to_yaml(cfg))
     slurm_utils.symlink_hydra(cfg, os.getcwd())

@@ -6,7 +6,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def filter_confidence(cfg: DictConfig):
     base_path = '/h/nng/data'
     d_path = os.path.join(base_path, cfg.data.task, cfg.data.name, cfg.data.fdset, cfg.data.bin)

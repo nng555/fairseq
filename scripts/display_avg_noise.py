@@ -6,7 +6,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def display_results(cfg: DictConfig):
     res_string = ""
     std_string = ""

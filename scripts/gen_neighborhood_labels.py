@@ -13,7 +13,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/robust/config.yaml')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def gen_neighborhood_labels(cfg: DictConfig):
     shard = cfg.gen.shard
     slurm_utils.symlink_hydra(cfg, os.getcwd())

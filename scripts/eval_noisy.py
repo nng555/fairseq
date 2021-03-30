@@ -78,7 +78,7 @@ def load_recon_model(recon, recon_date=None, recon_name=None, recon_rdset=None, 
         r_model.cuda()
     return r_model, r_encode
 
-@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def evaluate(cfg: DictConfig):
     #slurm_utils.symlink_hydra(cfg, os.getcwd())
 

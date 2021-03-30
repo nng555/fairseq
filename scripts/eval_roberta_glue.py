@@ -11,7 +11,7 @@ import hydra
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
-@hydra.main(config_path='/h/nng/conf/selftrain', config_name='config')
+@hydra.main(config_path=os.path.expandvars('$HOME/conf/$PROJ'), config_name='config')
 def evaluate_model(cfg: DictConfig):
     slurm_utils.symlink_hydra(cfg, os.getcwd())
 
