@@ -16,7 +16,7 @@ def launch(cfg: DictConfig):
 
     if cfg.data.task in ['nli', 'nng_dataset']:
         base_path = '/scratch/ssd001/datasets/'
-    elif cfg.data.task in ['sentiment', 'translation', 'robust']:
+    elif cfg.data.task in ['sentiment', 'translation', 'robust', 'pretrain']:
         base_path = '/h/nng/data'
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))
@@ -41,7 +41,7 @@ def launch(cfg: DictConfig):
                 found = True
                 break
 
-        if not found and 'roberta' in cfg.train.arch:
+        if not found and 'roberta' in cfg.train.arch and not cfg.restore:
             cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
             cfg.train.reset_optimizer = True
             cfg.train.reset_dataloader = True

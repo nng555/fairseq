@@ -45,7 +45,7 @@ def display_results(cfg: DictConfig):
                         cfg.display.dir.name[4] = gen_seed
 
                         for mask_noise in empty_to_list(cfg.display.mask_prob):
-                            cfg.train.mask_prob = mask_noise
+                            cfg.gen.mask_prob = mask_noise
                         #print(cfg.display.dir.name)
                         #print(slurm_utils.resolve_name(cfg.display.dir.name))
                         display_dir = os.path.join('/h/nng/slurm', cfg.display.dir.date, slurm_utils.resolve_name(cfg.display.dir.name))
