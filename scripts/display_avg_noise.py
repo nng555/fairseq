@@ -11,6 +11,20 @@ def display_results(cfg: DictConfig):
     res_string = ""
     std_string = ""
 
+    if cfg.data.task in ['nli', 'nng_dataset']:
+        base_path = '/scratch/ssd001/datasets/'
+    elif cfg.data.task in ['sentiment', 'translation', 'robust', 'pretrain']:
+        base_path = '/h/nng/data'
+    else:
+        raise Exception('task %s data path not found'.format(cfg.data.task))
+
+    d_path = os.path.join(base_path, cfg.data.task, cfg.data.name)
+    label_dictf = open(os.path.join(d_path, 'label.dict.txt')).readlines()
+
+    label_dict = {}
+    for i in range(len(label_dictf)):
+        label_dict[i] = label_dictf[i].split()[0]
+
     if cfg.eval.noisy:
         cfg.display.dir.name[0] = 'eval_noisy_gen'
         if cfg.eval.mask_prob:
@@ -46,12 +60,17 @@ def display_results(cfg: DictConfig):
 
                         for mask_noise in empty_to_list(cfg.display.mask_prob):
                             cfg.gen.mask_prob = mask_noise
-                        #print(cfg.display.dir.name)
-                        #print(slurm_utils.resolve_name(cfg.display.dir.name))
-                        display_dir = os.path.join('/h/nng/slurm', cfg.display.dir.date, slurm_utils.resolve_name(cfg.display.dir.name))
-                        if not os.path.exists(display_dir):
-                            #print("{} does not exist!".format(display_dir))
-                            continue
+                            #print(cfg.display.dir.name)
+                            #print(slurm_utils.resolve_name(cfg.display.dir.name))
+                            display_dir = os.path.join('/h/nng/slurm', cfg.display.dir.date, slurm_utils.resolve_name(cfg.display.dir.name))
+
+                            if not os.path.exists(display_dir) or not os.path.exists(os.path.join(display_dir, 'eval_status.json')):
+                                #print("{} does not exist!".format(display_dir))
+                                continue
+
+                            eval_res = json.load(open(os.path.join(display_dir, 'eval_status.json')))
+
+
 
 
                         fnames = sorted(os.listdir(display_dir))[::-1]

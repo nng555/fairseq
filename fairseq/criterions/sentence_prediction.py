@@ -95,11 +95,19 @@ class SentencePredictionCriterion(FairseqCriterion):
                 sample_size = self_targets.numel()
             #print('self_targets' + str(self_targets), flush=True)
 
+            # replace non st outputs with the real labels
+            self_targets[sample['st_mask']] = targets[sample['st_mask']]
+
             if self.threshold:
                 mask, _ = torch.max(probs, dim=-1)
                 mask = mask > self.threshold
                 self_targets = self_targets[mask]
                 logits = logits[mask]
+        #print("===========")
+        #print(self_targets)
+        #print(targets, flush=True)
+        #print(sample['st_mask'])
+        #print("===========", flush=True)
 
         def mean_ds(x: Tensor, dim=None) -> Tensor:
             return (

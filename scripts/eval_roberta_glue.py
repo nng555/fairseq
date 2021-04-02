@@ -15,9 +15,9 @@ from hydra import slurm_utils
 def evaluate_model(cfg: DictConfig):
     slurm_utils.symlink_hydra(cfg, os.getcwd())
 
-    if cfg.data.task in ['nli']:
+    if cfg.data.task in ['nli', 'nng_dataset']:
         base_path = '/scratch/ssd001/datasets/'
-    elif cfg.data.task in ['sentiment']:
+    elif cfg.data.task in ['sentiment', 'translation', 'robust', 'pretrain']:
         base_path = '/h/nng/data'
     else:
         raise Exception('task %s data path not found'.format(cfg.data.task))

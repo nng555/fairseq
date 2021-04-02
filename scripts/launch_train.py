@@ -2,7 +2,7 @@ import os
 import hydra
 import subprocess
 import logging
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, listconfig, listconfig
 from hydra import slurm_utils
 
 log = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def launch(cfg: DictConfig):
                 found = True
                 break
 
-        if not found and 'roberta' in cfg.train.arch and not cfg.restore:
+        if not found and 'roberta' in cfg.train.arch and cfg.restore:
             cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
             cfg.train.reset_optimizer = True
             cfg.train.reset_dataloader = True
@@ -64,7 +64,15 @@ def launch(cfg: DictConfig):
 
         cfg.train.recon_model_path = r_file
 
-    flags = [['--' + k.replace('_', '-'), slurm_utils.eval_val(str(v))] for k, v in cfg.train.items() if v != None]
+    flags = []
+    for k, v in cfg.train.items():
+        if v != None:
+            print(type(v))
+            print(v, flush=True)
+            if isinstance(v, listconfig.ListConfig):
+                flags.append(['--' + k.replace('_', '-'), ' '.join(v)])
+            else:
+                flags.append(['--' + k.replace('_', '-'), slurm_utils.eval_val(str(v))])
     flags = [val for sublist in flags if sublist[1] != "False" for val in sublist if val != "True"]
     flags = flags + ['--save-dir', os.path.join(j_dir, os.environ['SLURM_JOB_ID'])]
 

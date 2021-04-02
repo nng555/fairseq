@@ -102,8 +102,6 @@ class SentencePredictionTask(LegacyFairseqTask):
                             help='depth of augmentation')
         parser.add_argument('--keep-original', action='store_true', default=False,
                             help='whether to keep the original examples when augmenting')
-        parser.add_argument('--unlabelled-only', action='store_true', default=False,
-                            help='whether to augment only unlabelled data')
 
         # masking arguments
         parser.add_argument('--mask-prob', default=0.0, type=float,
@@ -143,6 +141,8 @@ class SentencePredictionTask(LegacyFairseqTask):
         #                    help='whether to self-train or not')
         parser.add_argument('--st-model-path', default=None,
                             help='path to self-training model directory')
+        parser.add_argument('--st-unlabelled-only', default=False, action='store_true',
+                            help='whether to self train only on unlabelled data')
         #parser.add_argument('--st-model-file', default='model.pt',
         #                    help='filename of self-training model checkpoint')
         #parser.add_argument('--st-model-data', default='/scratch/hdd001/home/nng/roberta/roberta.base',
@@ -152,7 +152,7 @@ class SentencePredictionTask(LegacyFairseqTask):
 
         # noisy student arguments
         parser.add_argument('--unlabelled-data', default=None,
-                            help='path to the additional unlabelled data')
+                            help='path (or comma separated paths) to the additional unlabelled data')
         parser.add_argument('--unlabelled-augment', default='none',
                             choices=['none', 'mask', 'reconstruct'],
                             help='if not none, apply data augmentation to unlabelled data')
@@ -405,6 +405,9 @@ class SentencePredictionTask(LegacyFairseqTask):
         # return masked tokens if reconstructed, as well as the original tokens
         return src_mask, src_tokens
 
+    def build_dummy_dataset(self, data_path, split):
+        label_path = "{0}.label".format(self.get_path('label', split, data_path))
+
     def build_label_dataset(self, data_path, split, combine=False):
         label_path = "{0}.label".format(self.get_path('label', split, data_path))
         if not self.args.regression_target:
@@ -446,20 +449,17 @@ class SentencePredictionTask(LegacyFairseqTask):
         assert input0 is not None, 'could not find dataset: {}'.format(self.get_path(type, split, self.args.data))
         input1 = self.make_dataset('input1', self.source_dictionary, split, self.args.data, combine)
         src_tokens, src_orig = self.build_dataset(input0, input1, split, self.args.augment, self.args.keep_original)
+        st_mask = RawLabelDataset([self.args.st_unlabelled_only for _ in range(len(src_tokens))])
 
         if self.args.unlabelled_data and split == 'train':
-            unlabelled0 = self.make_dataset('input0', self.source_dictionary, split, self.args.unlabelled_data, combine)
-            assert unlabelled0 is not None, 'could not find dataset: {}'.format(self.get_path(type, split, self.args.unlabelled_data))
-            unlabelled1 = self.make_dataset('input1', self.source_dictionary, split, self.args.unlabelled_data, combine)
-            unlabelled_tokens, unlabelled_orig = self.build_dataset(unlabelled0, unlabelled1, split, self.args.unlabelled_augment, False)
-            src_tokens = ConcatDataset([src_tokens, unlabelled_tokens])
-
-        if self.args.num_teachers and split == 'train':
-            src_tokens = PateTeacherDataset(
-                    src_tokens,
-                    self.args.teacher_idx,
-                    self.args.num_teachers,
-            )
+            for udata in self.args.unlabelled_data.split(','):
+                unlabelled0 = self.make_dataset('input0', self.source_dictionary, split, udata, combine)
+                assert unlabelled0 is not None, 'could not find dataset: {}'.format(self.get_path(type, split, udata))
+                unlabelled1 = self.make_dataset('input1', self.source_dictionary, split, udata, combine)
+                unlabelled_tokens, unlabelled_orig = self.build_dataset(unlabelled0, unlabelled1, split, self.args.unlabelled_augment, False)
+                src_tokens = ConcatDataset([src_tokens, unlabelled_tokens])
+                src_orig = ConcatDataset([src_orig, unlabelled_orig])
+                st_mask = ConcatDataset([st_mask, RawLabelDataset([0 for _ in range(len(unlabelled_tokens))])])
 
         if hasattr(self.args, 'data_seed'):
             with data_utils.numpy_seed(self.args.data_seed):
@@ -470,6 +470,7 @@ class SentencePredictionTask(LegacyFairseqTask):
 
         dataset = {
             "id": IdDataset(),
+            "st_mask": st_mask,
             "net_input": {
                 "src_tokens": RightPadDataset(
                     src_tokens,
@@ -503,8 +504,9 @@ class SentencePredictionTask(LegacyFairseqTask):
             label_dataset = ConcatDataset([label_dataset, label_dataset])
 
         if self.args.unlabelled_data and split == 'train':
-            unlabelled_dataset = self.build_label_dataset(self.args.unlabelled_data, split, combine)
-            label_dataset = ConcatDataset([label_dataset, unlabelled_dataset])
+            for udata in self.args.unlabelled_data.split(','):
+                unlabelled_dataset = self.build_label_dataset(udata, split, combine)
+                label_dataset = ConcatDataset([label_dataset, unlabelled_dataset])
 
         if self.args.num_teachers and split == 'train':
             label_dataset = PateTeacherDataset(
