@@ -77,8 +77,8 @@ def display_results(cfg: DictConfig):
                     var_row.append(0)
                     continue
 
+                print(seed_res)
                 if len(seed_res) != 1:
-                    print(seed_res)
                     row.append(np.average(seed_res))
                     std_row.append(np.std(seed_res))
                     var_row.append(np.var(seed_res))

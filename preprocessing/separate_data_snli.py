@@ -30,10 +30,12 @@ def separate(base_dir):
              open(os.path.join(base_dir, 'orig', split + '.raw.label'), 'w') as filelab:
 
             for entry in res:
+                if entry[2] == '-':
+                    continue
                 file0.write(entry[0] + '\n')
                 file1.write(entry[1] + '\n')
                 filelab.write(entry[2] + '\n')
 
 if __name__ == "__main__":
-    separate('/scratch/ssd001/datasets/nng_dataset/nli/snli_1.0/')
+    separate('/scratch/ssd001/datasets/nng_dataset/nli/snli')
 

@@ -75,7 +75,7 @@ def evaluate_model(cfg: DictConfig):
         input0 = input0f.readlines()
         target = targetf.readlines()
 
-        if cfg.data.task in ['nli']:
+        if cfg.data.task in ['nli'] or 'nli' in cfg.data.name:
             input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
             input1 = input1f.readlines()
             files = [input0, input1, target]

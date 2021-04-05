@@ -206,7 +206,7 @@ class SentencePredictionTask(LegacyFairseqTask):
 
         if (self.args.augment == 'reconstruct' or self.args.unlabelled_augment == 'reconstruct') and not self.only_eval:
             print(self.args.recon_model_path)
-            self.recon_model = checkpoint_utils.load_model_ensemble([self.args.recon_model_path])[0][0]
+            self.recon_model = checkpoint_utils.load_model_ensemble([self.args.recon_model_path], task=self)[0][0]
             self.recon_model.register_buffer("_float_tensor", torch.tensor([0], dtype=torch.float))
             self.recon_model.eval()
             self.recon_model.cuda()
