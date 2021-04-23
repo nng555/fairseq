@@ -74,10 +74,10 @@ def evaluate_model(cfg: DictConfig):
 
         input0 = input0f.readlines()
         target = targetf.readlines()
-        input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
+        input1f = os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1')
 
         if os.path.exists(input1f):
-            input1 = input1f.readlines()
+            input1 = open(input1f).readlines()
             files = [input0, input1, target]
         else:
             files = [input0, target]
