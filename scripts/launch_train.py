@@ -41,8 +41,9 @@ def launch(cfg: DictConfig):
                 found = True
                 break
 
-        if not found and 'roberta' in cfg.train.arch and cfg.restore and not cfg.train.restore_file:
-            cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
+        if not found and cfg.restore:
+            if not cfg.train.restore_file and 'roberta' in cfg.train.arch:
+                cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
             cfg.train.reset_optimizer = True
             cfg.train.reset_dataloader = True
             cfg.train.reset_meters = True

@@ -74,9 +74,9 @@ def evaluate_model(cfg: DictConfig):
 
         input0 = input0f.readlines()
         target = targetf.readlines()
+        input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
 
-        if cfg.data.task in ['nli'] or 'nli' in cfg.data.name or 'paraphrase' in cfg.data.name:
-            input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
+        if os.path.exists(input1f):
             input1 = input1f.readlines()
             files = [input0, input1, target]
         else:
@@ -87,17 +87,14 @@ def evaluate_model(cfg: DictConfig):
             ex = [s.strip() for s in ex]
 
             # otherwise use the full sentence
-            s1_tok = model.encode(ex[0].strip())
+            tokens = model.encode(ex[0].strip())
 
-            if cfg.data.task in ['nli']:
-                s2_tok = model.encode(ex[1].strip())
-                tokens = torch.cat((s1_tok, s2_tok))
-            else:
-                tokens = s1_tok
+            for ex_tok in ex[1:-1]:
+                ex_tok = model.encode(ex_tok)
+                tokens = torch.cat((tokens, ex_tok))
 
-            if cfg.data.name != 'mnli':
-                if len(tokens) > model.max_positions[0]:
-                    continue
+            if len(tokens) > model.max_positions[0]:
+                continue
 
             pred_prob = model.predict(
                             'sentence_classification_head',
