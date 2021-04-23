@@ -1,4 +1,6 @@
 import os
+from operator import add
+import json
 import argparse
 import numpy as np
 
@@ -58,6 +60,9 @@ def display_results(cfg: DictConfig):
                     for gen_seed in empty_to_list(cfg.gen.seed):
                         cfg.display.dir.name[4] = gen_seed
 
+                        final_res = {}
+                        final_target = None
+
                         for mask_noise in empty_to_list(cfg.display.mask_prob):
                             cfg.gen.mask_prob = mask_noise
                             #print(cfg.display.dir.name)
@@ -67,33 +72,31 @@ def display_results(cfg: DictConfig):
                             if not os.path.exists(display_dir) or not os.path.exists(os.path.join(display_dir, 'eval_status.json')):
                                 #print("{} does not exist!".format(display_dir))
                                 continue
-
-                            eval_res = json.load(open(os.path.join(display_dir, 'eval_status.json')))
-
-
-
-
-                        fnames = sorted(os.listdir(display_dir))[::-1]
-                        for fname in fnames:
-                            if 'err' in fname:
+                            if os.stat(os.path.join(display_dir, 'eval_status.json')).st_size == 0:
                                 continue
-                            res = open(os.path.join(display_dir, fname), 'r').readlines()
-                            if cfg.data.task == 'translation':
-                                if res != []:
-                                    if tdset == 'iwslt':
-                                        bleu_str = res[-1].strip().split('BLEU4 = ')
-                                        if len(bleu_str) != 1:
-                                            seed_res.append(float(bleu_str[1].strip().split(',')[0]))
-                                            break
-                                    else:
-                                        bleu_str = res[-1].strip().split('=')
-                                        if len(bleu_str) != 1:
-                                            seed_res.append(float(bleu_str[1].strip().split()[0]))
-                                            break
-                            else:
-                                if res != [] and 'Accuracy' in res[-1]:
-                                    seed_res.append(float(res[-1].rstrip().split(' ')[-1]))
-                                    break
+
+                            eval_res, eval_target, _ = json.load(open(os.path.join(display_dir, 'eval_status.json')))
+                            if not final_target:
+                                final_target = eval_target
+                            for k, v in eval_res.items():
+                                if k not in final_res:
+                                    final_res[k] = v
+                                else:
+                                    final_res[k] = list(map(add, final_res[k], v))
+
+                        if not final_res:
+                            continue
+
+                        nval = 0
+                        nsamples = 0
+
+                        for k in final_res:
+                            prediction = np.asarray(final_res[k]).argmax()
+                            prediction_label = label_dict[prediction]
+                            nval += int(prediction_label == final_target[k])
+                            nsamples += 1
+
+                        seed_res.append(float(nval)/nsamples)
 
                 if seed_res == []:
                     row.append(0)

@@ -3,7 +3,7 @@ import numpy
 
 def encode_soft_labels(data_path, genre, aug, split, num_classes):
     with open(os.path.join(data_path, 'label.dict.txt'), 'r') as dictf, \
-         open(os.path.join(data_path, genre, aug, split + '.gen.label'), 'r') as labelf, \
+         open(os.path.join(data_path, genre, aug, split + '.raw.label'), 'r') as labelf, \
          open(os.path.join(data_path, genre, aug, split + '.soft.label'), 'w') as softf:
         dictf = dictf.readlines()
         labeldict = [l.strip().split()[0] for l in dictf[:num_classes]]
@@ -14,7 +14,10 @@ def encode_soft_labels(data_path, genre, aug, split, num_classes):
             softf.write(' '.join(probs) + '\n')
 
 if __name__ == '__main__':
-    encode_soft_labels('/h/nng/data/sentiment/aws', 'books', 'pate_1k', 'train', 5)
+    #for genre in ['books', 'clothing', 'home', 'kindle', 'movies', 'pets', 'sports', 'tech', 'tools', 'toys']:
+    for genre in ['books', 'clothing']:
+        for split in ['train', 'valid', 'test']:
+            encode_soft_labels('/h/nng/data/sentiment/aws', genre, 'orig', split, 5)
     #for genre in ['slate', 'fiction', 'telephone', 'travel', 'government']:
     #    for aug in ['orig']:
     #        for split in ['train', 'valid', 'test']:
@@ -23,7 +26,6 @@ if __name__ == '__main__':
     #    for aug in ['orig']:
     #        for split in ['train', 'dev', 'test']:
     #            encode_soft_labels('/scratch/ssd001/datasets/nli/anli', genre, aug, split, 3)
-    #for genre in ['books', 'clothing', 'home', 'kindle', 'movies', 'pets', 'sports', 'tech', 'tools', 'toys']:
     #for genre in ['men', 'women', 'baby', 'shoes']:
     #    for aug in ['orig']:
     #        for split in ['train', 'valid', 'test']:

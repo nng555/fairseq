@@ -383,6 +383,7 @@ def load_model_ensemble_and_task(
             state = None
 
         ensemble.append(model)
+    print("WE'VE LOADED THE MODEL HERE", flush=True)
     return ensemble, cfg, task
 
 

@@ -136,7 +136,7 @@ def evaluate_model(cfg: DictConfig):
                 b_id = b_id.strip()
                 t = t.strip()
                 if b_id not in res:
-                    res[b_id] = [0.0 for _ in range(cfg.data.bin.num_classes)]
+                    res[b_id] = [0.0 for _ in range(cfg.data.num_classes)]
                 if b_id not in targets:
                     targets[b_id] = t
 

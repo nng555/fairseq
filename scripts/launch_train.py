@@ -15,7 +15,7 @@ def launch(cfg: DictConfig):
     os.environ['NCCL_DEBUG'] = 'INFO'
 
     if cfg.data.task in ['nli', 'nng_dataset']:
-        base_path = '/scratch/ssd001/datasets/'
+        base_path = '/scratch/ssd002/datasets/'
     elif cfg.data.task in ['sentiment', 'translation', 'robust', 'pretrain']:
         base_path = '/h/nng/data'
     else:
@@ -41,7 +41,7 @@ def launch(cfg: DictConfig):
                 found = True
                 break
 
-        if not found and 'roberta' in cfg.train.arch and cfg.restore:
+        if not found and 'roberta' in cfg.train.arch and cfg.restore and not cfg.train.restore_file:
             cfg.train.restore_file = '/scratch/hdd001/home/nng/roberta/roberta.base/model.pt'
             cfg.train.reset_optimizer = True
             cfg.train.reset_dataloader = True

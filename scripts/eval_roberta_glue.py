@@ -16,7 +16,7 @@ def evaluate_model(cfg: DictConfig):
     slurm_utils.symlink_hydra(cfg, os.getcwd())
 
     if cfg.data.task in ['nli', 'nng_dataset']:
-        base_path = '/scratch/ssd001/datasets/'
+        base_path = '/scratch/ssd002/datasets/'
     elif cfg.data.task in ['sentiment', 'translation', 'robust', 'pretrain']:
         base_path = '/h/nng/data'
     else:
@@ -75,7 +75,7 @@ def evaluate_model(cfg: DictConfig):
         input0 = input0f.readlines()
         target = targetf.readlines()
 
-        if cfg.data.task in ['nli'] or 'nli' in cfg.data.name:
+        if cfg.data.task in ['nli'] or 'nli' in cfg.data.name or 'paraphrase' in cfg.data.name:
             input1f = open(os.path.join(eval_data_path, cfg.data.tdset, cfg.data.bin.name, cfg.eval.split + '.raw.input1'))
             input1 = input1f.readlines()
             files = [input0, input1, target]

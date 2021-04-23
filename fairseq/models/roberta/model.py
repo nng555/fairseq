@@ -247,6 +247,7 @@ class RobertaModel(FairseqEncoderModel):
         checkpoint_file="model.pt",
         data_name_or_path=".",
         bpe="gpt2",
+        load_checkpoint_heads=True,
         **kwargs
     ):
         from fairseq import hub_utils
@@ -257,7 +258,7 @@ class RobertaModel(FairseqEncoderModel):
             data_name_or_path,
             archive_map=cls.hub_models(),
             bpe=bpe,
-            load_checkpoint_heads=True,
+            load_checkpoint_heads=load_checkpoint_heads,
             **kwargs,
         )
 

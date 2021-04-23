@@ -1,4 +1,5 @@
 from fairseq.models.roberta import RobertaModel
+import math
 import argparse
 import os
 import numpy as np
@@ -301,10 +302,11 @@ def gen_neighborhood(cfg: DictConfig):
             id_file = [s.strip() for s in open(extid_path, 'r').readlines()]
         else:
             id_file = [i for i in range(len(open(ext0_path, 'r').readlines()))]
+            id_file = id_file[shard_start:shard_end]
 
 
     if not os.path.exists(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset)):
-        os.makedirs(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset))
+        os.makedirs(os.path.join(d_path, cfg.data.fdset, cfg.gen.dset), exist_ok=True)
 
     s0_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.gen.' + ext0)
     l_rec_filename = os.path.join(d_path, cfg.data.fdset, cfg.gen.dset, data_split + '.imp.' + extl)
@@ -386,10 +388,16 @@ def gen_neighborhood(cfg: DictConfig):
             gen_index.append(0)
             next_sent += 1
 
+    num_probs = 1
+    if cfg.gen.increment:
+        num_probs += math.ceil((float(cfg.gen.max_mask_prob) - float(cfg.gen.mask_prob))/float(cfg.gen.increment))
+
+    print(num_probs, flush=True)
+
     while (sents != []):
         # remove any sentences that are done generating and dump to file
         for i in range(len(num_gen))[::-1]:
-            if num_gen[i] == cfg.gen.num_samples or num_tries[i] > cfg.gen.max_tries:
+            if num_gen[i] == cfg.gen.num_samples * num_probs or num_tries[i] > cfg.gen.max_tries:
 
                 # dump sents to file and add new one
                 gen_sents = sents.pop(i)
@@ -469,17 +477,26 @@ def gen_neighborhood(cfg: DictConfig):
         # build batch
         for i in range(len(gen_index)):
             s = sents[i][gen_index[i]]
+
+            if cfg.gen.increment:
+                mask_prob = cfg.gen.mask_prob + int(num_gen[i]/cfg.gen.num_samples) * cfg.gen.increment
+            else:
+                mask_prob = cfg.gen.mask_prob
+            #print(mask_prob, flush=True)
+            #print(num_gen[i], flush=True)
+            #print(num_probs, flush=True)
+
             if cfg.gen.recon in ['german', 'multilingual']:
                 tok, mask = hf_masked_encode(
                         tokenizer,
                         *s,
-                        mask_prob=cfg.gen.mask_prob,
+                        mask_prob=mask_prob,
                         random_token_prob=cfg.gen.random_token_prob,
                         leave_unmasked_prob=cfg.gen.leave_unmasked_prob,
                 )
             else:
                 tok, mask = r_encode.masked_encode(*s,
-                        mask_prob=cfg.gen.mask_prob,
+                        mask_prob=mask_prob,
                         random_token_prob=cfg.gen.random_token_prob,
                         leave_unmasked_prob=cfg.gen.leave_unmasked_prob,
                         sort=cfg.gen.sort
